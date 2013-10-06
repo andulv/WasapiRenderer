@@ -305,7 +305,7 @@ bool CWASAPIRenderer::ReleaseAudioEngine()
 //
 bool CWASAPIRenderer::InitializeAudioClient()
 {
-    REFERENCE_TIME bufferDuration = _EngineLatencyInMS*10000;
+    REFERENCE_TIME bufferDuration = _EngineLatencyInMS*100000;
 	REFERENCE_TIME period = bufferDuration;
 
 	if(_ShareMode==AUDCLNT_SHAREMODE_SHARED)

@@ -8,6 +8,7 @@
 #include "WasapiHelper.h"
 #include "stdafx.h"
 #include "CWasapiFilterManager.h"
+#include "CResampler.h"
 
 //
 //  CWasapiFilterManager class
@@ -18,7 +19,8 @@ CWasapiFilterManager::CWasapiFilterManager(LPUNKNOWN pUnk, HRESULT *phr) :
     m_pPin(NULL),
     m_pPosition(NULL),
 	m_pRenderer(NULL),
-	m_pCurrentMediaType(NULL),
+	m_pCurrentMediaTypeReceive(NULL),
+	m_pCurrentMediaTypeResample(NULL),
 	m_IsExclusive(true),
 	m_currentMediaTypeSampleReceivedAction(ReceivedSampleActions_RejectLoud)
 {
@@ -41,7 +43,8 @@ CWasapiFilterManager::CWasapiFilterManager(LPUNKNOWN pUnk, HRESULT *phr) :
             *phr = E_OUTOFMEMORY;
         return;
     }
-
+	CResampler* resampler=new CResampler();
+	resampler->GetDeviceID();
 	m_pRenderer=new CWASAPIRenderer(NULL);
 }
 
@@ -123,68 +126,6 @@ HRESULT CWasapiFilterManager::GetActiveMode(int* pMode)
 	return hr;
 }
 
-//Returns S_FALSE if sampleformat is not supported
-HRESULT CWasapiFilterManager::SampleReceived(IMediaSample *pSample)
-{
-	int hr=S_OK;
-	CMediaType* mediaType=NULL;
-	
-	//Check if mediatype has changed (sample usually only contains mediatype if changed)
-	hr=pSample->GetMediaType((AM_MEDIA_TYPE**)&mediaType);
-	if(hr==S_OK)
-	{	
-		DebugPrintf(L"SampleReceived - Mediatype has changed.\n");
-		SetCurrentMediaType(mediaType);	//Makes a ref counting copy
-	}
-	hr=S_OK;
-	//CurrentMediaType is either a accepted waveformat or FORMAT_None. 
-	//If FORMAT_None, just ignore the sample.
-	if(m_currentMediaTypeSampleReceivedAction==ReceivedSampleActions_Accept)
-	{
-		hr=S_OK;
-		pSample->AddRef();
-		m_pCurrentMediaType->AddRef();
-		m_pRenderer->AddSampleToQueue(pSample,m_pCurrentMediaType,m_IsExclusive);  //Renderer will release sample and delete mediaType after they are pulled/cleared from the queue.
-	}
-	else if(m_currentMediaTypeSampleReceivedAction==ReceivedSampleActions_RejectLoud)
-	{
-		hr=S_FALSE;
-	}
-exit:
-	if(mediaType)
-		DeleteMediaType(mediaType);
-    return hr;
-}
-
-// Destructor
-CWasapiFilterManager::~CWasapiFilterManager()
-{
-    delete m_pPin;
-    delete m_pFilter;
-    delete m_pPosition;
-	if(m_pRenderer)
-		delete m_pRenderer;
-	m_pRenderer=NULL;
-}
-
-
-// CreateInstance
-// Provide the way for COM to create a dump filter
-CUnknown * WINAPI CWasapiFilterManager::CreateInstance(LPUNKNOWN punk, HRESULT *phr)
-{
-    ASSERT(phr);
-    
-    CWasapiFilterManager *pNewObject = new CWasapiFilterManager(punk, phr);
-    if (pNewObject == NULL) {
-        if (phr)
-            *phr = E_OUTOFMEMORY;
-    }
-
-    return pNewObject;
-
-} // CreateInstance
-
-
 //Is called from InputsPin->SetMediaType (Graph control thread) and from SampleReceived (parser/decoder thread)
 HRESULT CWasapiFilterManager::SetCurrentMediaType(CMediaType* pmt)
 {
@@ -213,28 +154,61 @@ HRESULT CWasapiFilterManager::SetCurrentMediaType(CMediaType* pmt)
 
 	CAutoLock lock(&m_MediaTypeLock);
 	HRESULT hr=S_OK;
-	if(m_pCurrentMediaType)
+	if(m_pCurrentMediaTypeReceive)
 	{
-		m_pCurrentMediaType->Release();
+		m_pCurrentMediaTypeReceive->Release();
 	}
 
-	m_pCurrentMediaType=new RefCountingMediaType();
-	CopyMediaType(m_pCurrentMediaType,pmt);
+	m_pCurrentMediaTypeReceive=new RefCountingMediaType();
+	CopyMediaType(m_pCurrentMediaTypeReceive,pmt);
 	m_currentMediaTypeSampleReceivedAction=newAction;
 	return hr;
 }
 
-//CMediaType* CWasapiFilterManager::GetCopyOfCurrentMediaType()
-//{
-////	CAutoLock lock(&m_MediaTypeLock);
-//	CMediaType* retValue=NULL;
-//	if(m_pCurrentMediaType)
-//	{
-//		retValue=new CMediaType();
-//		CopyMediaType(retValue,m_pCurrentMediaType);
-//	}
-//	return retValue;
-//}
+
+//Returns S_FALSE if sampleformat is not supported
+HRESULT CWasapiFilterManager::SampleReceived(IMediaSample *pSample)
+{
+	int hr=S_OK;
+	CMediaType* mediaType=NULL;
+	
+	//Check if mediatype has changed (sample usually only contains mediatype if changed)
+	hr=pSample->GetMediaType((AM_MEDIA_TYPE**)&mediaType);
+	if(hr==S_OK)
+	{	
+		DebugPrintf(L"SampleReceived - Mediatype has changed.\n");
+		SetCurrentMediaType(mediaType);	//Makes a ref counting copy
+	}
+	hr=S_OK;
+	//CurrentMediaType is either a accepted waveformat or FORMAT_None. 
+	//If FORMAT_None, just ignore the sample.
+	if(m_currentMediaTypeSampleReceivedAction==ReceivedSampleActions_Accept)
+	{
+		hr=S_OK;
+		pSample->AddRef();
+		m_pCurrentMediaTypeReceive->AddRef();
+		m_pRenderer->AddSampleToQueue(pSample,m_pCurrentMediaTypeReceive,m_IsExclusive);  //Renderer will release sample and delete mediaType after they are pulled/cleared from the queue.
+	}
+	else if(m_currentMediaTypeSampleReceivedAction==ReceivedSampleActions_RejectLoud)
+	{
+		hr=S_FALSE;
+	}
+exit:
+	if(mediaType)
+		DeleteMediaType(mediaType);
+    return hr;
+}
+
+// Destructor
+CWasapiFilterManager::~CWasapiFilterManager()
+{
+    delete m_pPin;
+    delete m_pFilter;
+    delete m_pPosition;
+	if(m_pRenderer)
+		delete m_pRenderer;
+	m_pRenderer=NULL;
+}
 
 REFERENCE_TIME CWasapiFilterManager::GetPrivateTime()
 {
@@ -265,6 +239,21 @@ REFERENCE_TIME CWasapiFilterManager::GetPrivateTime()
 }
 
 
+// CreateInstance
+// Provide the way for COM to create the filter
+CUnknown * WINAPI CWasapiFilterManager::CreateInstance(LPUNKNOWN punk, HRESULT *phr)
+{
+    ASSERT(phr);
+    
+    CWasapiFilterManager *pNewObject = new CWasapiFilterManager(punk, phr);
+    if (pNewObject == NULL) {
+        if (phr)
+            *phr = E_OUTOFMEMORY;
+    }
+
+    return pNewObject;
+
+} // CreateInstance
 
 // NonDelegatingQueryInterface
 // Override this to say what interfaces we support where

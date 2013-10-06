@@ -26,7 +26,8 @@ class CWasapiFilterManager : public IRendererFilterWasapi, public CBaseReference
     CCritSec				m_ReceiveLock;         // Sublock for received samples
     CCritSec				m_MediaTypeLock;         // Sublock for received samples
 
-	RefCountingMediaType	*m_pCurrentMediaType;
+	RefCountingMediaType	*m_pCurrentMediaTypeReceive;
+	RefCountingMediaType	*m_pCurrentMediaTypeResample;
 	ReceivedSampleActions	m_currentMediaTypeSampleReceivedAction;
 	bool					m_IsExclusive;
 
