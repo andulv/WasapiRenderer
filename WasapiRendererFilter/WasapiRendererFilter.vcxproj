@@ -58,7 +58,7 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
     <_ProjectFileVersion>10.0.40219.1</_ProjectFileVersion>
-    <OutDir Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Debug\</OutDir>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">..\bin_Win32d</OutDir>
     <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Debug\</IntDir>
     <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</LinkIncremental>
     <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Release\</OutDir>
@@ -82,8 +82,8 @@
       </CompileAsManaged>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>..\baseclasses\debug\strmbasd.lib;winmm.lib;msvcrtd.lib;avrt.lib;D:\Projects-MMGIT\WasapiRenderer\bin_Win32d\lib\avformat-lav.lib;D:\Projects-MMGIT\WasapiRenderer\bin_Win32d\lib\avutil-lav.lib;D:\Projects-MMGIT\WasapiRenderer\bin_Win32d\lib\avcodec-lav.lib;D:\Projects-MMGIT\WasapiRenderer\bin_Win32d\lib\avresample-lav.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>D:\Projects-MMGIT\WasapiRenderer\bin_Win32d\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>strmbasd.lib;winmm.lib;msvcrtd.lib;avrt.lib;avformat-lav.lib;avutil-lav.lib;avcodec-lav.lib;avresample-lav.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>..\bin_Win32d\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <IgnoreAllDefaultLibraries>
       </IgnoreAllDefaultLibraries>
       <ModuleDefinitionFile>WasapiRendererFilter.def</ModuleDefinitionFile>
