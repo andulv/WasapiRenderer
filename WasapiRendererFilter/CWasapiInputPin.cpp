@@ -85,9 +85,9 @@ HRESULT CWasapiInputPin::NotifyAllocator(
 //
 HRESULT CWasapiInputPin::BreakConnect()
 {
-    if (m_pManager->m_pPosition != NULL) {
-        m_pManager->m_pPosition->ForceRefresh();
-    }
+    //if (m_pManager->m_pPosition != NULL) {
+    //    m_pManager->m_pPosition->ForceRefresh();
+    //}
 
 	DebugPrintf(L"CWasapiInputPin::BreakConnect \n");
 	m_pManager->StopRendering(true);

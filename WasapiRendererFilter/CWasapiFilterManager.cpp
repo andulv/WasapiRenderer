@@ -188,9 +188,10 @@ HRESULT CWasapiFilterManager::SampleReceived(IMediaSample *pSample)
 	if(m_currentMediaTypeSampleReceivedAction==ReceivedSampleActions_Accept)
 	{
 		hr=S_OK;
-		pSample->AddRef();
+		//pSample->AddRef();
 		m_pCurrentMediaTypeReceive->AddRef();
-		m_pRenderer->AddSampleToQueue(pSample,m_pCurrentMediaTypeReceive,m_IsExclusive);  //Renderer will release sample and delete mediaType after they are pulled/cleared from the queue.
+		SimpleSample* pSimple=SimpleSample::CopyAndCreate(pSample);
+		m_pRenderer->AddSampleToQueue(pSimple,m_pCurrentMediaTypeReceive,m_IsExclusive);  //Renderer will release sample and delete mediaType after they are pulled/cleared from the queue.
 	}
 	else if(m_currentMediaTypeSampleReceivedAction==ReceivedSampleActions_RejectLoud)
 	{

@@ -97,10 +97,80 @@ protected:
 };
 
 
+class SimpleSample
+{
+public:
+	SimpleSample():
+		m_refCount(0),
+		m_pSampleData(NULL),
+		m_dataLength(0)
+	{
+		AddRef();
+	}
+
+	LONG AddRef()
+	{
+		return InterlockedIncrement(&m_refCount);
+		m_refCount++;
+	}
+
+	LONG Release()
+	{
+		int newValue=-1;
+		newValue= InterlockedDecrementAcquire(&m_refCount);
+		if(newValue==0)
+		{
+			m_pSample->Release();
+			delete m_pSampleData;
+			delete this;
+		}
+		return newValue;
+	}
+
+
+	static SimpleSample* CopyAndCreate(IMediaSample* pSource)
+	{
+		SimpleSample* retValue=new SimpleSample();
+		retValue->m_dataLength = pSource->GetActualDataLength();
+		pSource->GetTime(&(retValue->TimeStart),&(retValue->TimeEnd));
+
+		byte* pSourceBuffer;
+		pSource->GetPointer(&pSourceBuffer);
+		byte* pDest = new byte[retValue->m_dataLength];
+		CopyMemory(pDest, pSourceBuffer, retValue->m_dataLength);
+		retValue->m_pSampleData=pDest;
+		retValue->m_pSample=pSource;
+		pSource->AddRef();
+		return retValue;
+	}
+
+	long GetActualDataLength()
+	{
+		return m_dataLength;
+	}
+
+	byte* GetPointer()
+	{
+		return m_pSampleData;
+	}
+
+public:
+		REFERENCE_TIME TimeStart, TimeEnd;
+
+protected:
+	volatile LONG m_refCount;
+	byte* m_pSampleData;
+	long m_dataLength;
+
+	IMediaSample* m_pSample;
+
+};
+
+
 struct RenderBuffer
 {
     RenderBuffer *  _Next;
-	IMediaSample *pSample;
+	SimpleSample *pSample;
 	RefCountingWaveFormatEx *pMediaType;
 	bool ExclusiveMode;
 
@@ -128,7 +198,7 @@ public:
     bool Start(UINT32 EngineLatency);
     void Stop();
 	void SetIsProcessing(bool isOK);
-	void AddSampleToQueue(IMediaSample *pSample, RefCountingWaveFormatEx *pMediaType, bool isExclusive);
+	void AddSampleToQueue(SimpleSample *pSample, RefCountingWaveFormatEx *pMediaType, bool isExclusive);
 	void ClearQueue();
 	REFERENCE_TIME		GetCurrentSampleTime();
 	int					InitializedMode;
@@ -162,7 +232,7 @@ private:
 	bool				m_bIsProcessing;
 
     //  Render buffer management. - Accessed only from renderer thread
-	IMediaSample			*_pCurrentSample;
+	SimpleSample			*_pCurrentSample;
 	RefCountingWaveFormatEx	*_pCurrentMediaType;
 	AUDCLNT_SHAREMODE		_ShareMode;
 	bool					_hasTriedExclusiveModeWithCurrentMediaType;

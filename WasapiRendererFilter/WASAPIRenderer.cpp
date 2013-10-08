@@ -242,7 +242,7 @@ void CWASAPIRenderer::ClearQueue()
 	UpdateProcessSamplesInQueueEvent();
 }
 
-void CWASAPIRenderer::AddSampleToQueue(IMediaSample *pSample, RefCountingWaveFormatEx *pMediaType, bool isExclusive)
+void CWASAPIRenderer::AddSampleToQueue(SimpleSample *pSample, RefCountingWaveFormatEx *pMediaType, bool isExclusive)
 {
 	RenderBuffer *newNode = new (std::nothrow) RenderBuffer();
 	newNode->pSample=pSample;
@@ -497,7 +497,10 @@ bool CWASAPIRenderer::PopulateCurrentFromQueue()
 	}
 	
 	if(_pCurrentSample)
-		_pCurrentSample->GetTime(&CurrentSampleStart,&CurrentSampleEnd);
+	{
+		CurrentSampleStart=_pCurrentSample->TimeStart;
+		CurrentSampleEnd=_pCurrentSample->TimeEnd;
+	}
 	//else
 	//{
 	//	CurrentSampleStart=NULL;
@@ -582,7 +585,7 @@ HRESULT CWASAPIRenderer::FeedRenderer()
 				while(_pCurrentSample!=NULL && bytesCopied<bytesToCopy && !mediaTypeChanged)
 				{		
 					LONG sampleSize=_pCurrentSample->GetActualDataLength();
-					hr = _pCurrentSample->GetPointer(&pSampleData);
+					pSampleData = _pCurrentSample->GetPointer();
 
 					long offsetEnd=_CurrentSampleOffset + bytesToCopy-bytesCopied;
 					if(offsetEnd>sampleSize)
