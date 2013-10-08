@@ -242,7 +242,7 @@ void CWASAPIRenderer::ClearQueue()
 	UpdateProcessSamplesInQueueEvent();
 }
 
-void CWASAPIRenderer::AddSampleToQueue(IMediaSample *pSample, RefCountingMediaType *pMediaType, bool isExclusive)
+void CWASAPIRenderer::AddSampleToQueue(IMediaSample *pSample, RefCountingWaveFormatEx *pMediaType, bool isExclusive)
 {
 	RenderBuffer *newNode = new (std::nothrow) RenderBuffer();
 	newNode->pSample=pSample;
@@ -315,7 +315,7 @@ bool CWASAPIRenderer::InitializeAudioClient()
                                           AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_NOPERSIST, 
                                           bufferDuration, 
                                           period ,
-                                          (WAVEFORMATEX*)_pCurrentMediaType->pbFormat, 
+										  _pCurrentMediaType->GetFormat(), 
                                           NULL);
 
     //  When rendering in exclusive mode event driven, the HDAudio specification requires that the buffers handed to the device must 
@@ -343,7 +343,7 @@ bool CWASAPIRenderer::InitializeAudioClient()
         bufferDuration = (REFERENCE_TIME)(10000.0 *                         // (REFERENCE_TIME / ms) *
                                           1000 *                            // (ms / s) *
                                           bufferSize /                      // frames /
-                                          ((WAVEFORMATEX*)_pCurrentMediaType->pbFormat)->nSamplesPerSec +      // (frames / s)
+                                          _pCurrentMediaType->GetFormat()->nSamplesPerSec +      // (frames / s)
                                           0.5);                             // rounding
 
 
@@ -351,7 +351,7 @@ bool CWASAPIRenderer::InitializeAudioClient()
                                       AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_NOPERSIST, 
                                       bufferDuration, 
                                       bufferDuration, 
-                                      (WAVEFORMATEX*)_pCurrentMediaType->pbFormat, 
+                                      _pCurrentMediaType->GetFormat(), 
                                       NULL);
         if (FAILED(hr))
         {
@@ -403,7 +403,7 @@ bool CWASAPIRenderer::InitializeAudioEngine()
         DebugPrintf(L"Unable to activate audio client: %x.\n", hr);
     }
 
-	_FrameSize = ((WAVEFORMATEX*)_pCurrentMediaType->pbFormat)->nBlockAlign;
+	_FrameSize = _pCurrentMediaType->GetFormat()->nBlockAlign;
 
     if (InitializeAudioClient())
 	{
@@ -525,7 +525,7 @@ bool CWASAPIRenderer::PopulateCurrentFromQueue()
 			else //if(!_hasTriedExclusiveModeWithCurrentMediaType)
 			//Check if we can switch to Exclusive Mode, if not we just want to continue in shared mode.
 			{
-				WAVEFORMATEX* formatNew=(WAVEFORMATEX*)_pCurrentMediaType->pbFormat;
+				WAVEFORMATEX* formatNew=_pCurrentMediaType->GetFormat();
 				WAVEFORMATEX* suggestedFormat=NULL;
 				bool isOK=CheckFormat(formatNew,suggestedFormat,newShareMode);
 				if(isOK)

@@ -20,7 +20,7 @@ CWasapiFilterManager::CWasapiFilterManager(LPUNKNOWN pUnk, HRESULT *phr) :
     m_pPosition(NULL),
 	m_pRenderer(NULL),
 	m_pCurrentMediaTypeReceive(NULL),
-	m_pCurrentMediaTypeResample(NULL),
+	//m_pCurrentMediaTypeResample(NULL),
 	m_IsExclusive(true),
 	m_currentMediaTypeSampleReceivedAction(ReceivedSampleActions_RejectLoud)
 {
@@ -130,18 +130,31 @@ HRESULT CWasapiFilterManager::GetActiveMode(int* pMode)
 HRESULT CWasapiFilterManager::SetCurrentMediaType(CMediaType* pmt)
 {
 	ReceivedSampleActions newAction=ReceivedSampleActions_RejectLoud;
+
+	CAutoLock lock(&m_MediaTypeLock);
+	HRESULT hr=S_OK;
+
+	if(m_pCurrentMediaTypeReceive)
+	{
+		m_pCurrentMediaTypeReceive->Release();
+		m_pCurrentMediaTypeReceive=NULL;
+	}
+
 	if(pmt->formattype==FORMAT_WaveFormatEx)
 	{
 		WAVEFORMATEX* formatNew=(WAVEFORMATEX*)pmt->pbFormat;
 		WAVEFORMATEX* suggestedFormat=NULL;
 		
 		bool isOK=CheckFormat(formatNew,suggestedFormat);
+		if(isOK)
+			newAction=ReceivedSampleActions_Accept;
 		if(suggestedFormat)
 			CoTaskMemFree(suggestedFormat);
 
+		m_pCurrentMediaTypeReceive = RefCountingWaveFormatEx::CopyAndCreate(formatNew);
+		m_currentMediaTypeSampleReceivedAction=newAction;
+
 		DebugPrintf(L"SetCurrentMediaType - FORMAT_WaveFormatEx format. isOK: %d\n",isOK);
-		if(isOK)
-			newAction=ReceivedSampleActions_Accept;
 	}
 	else if(pmt->formattype==FORMAT_None)
 	{
@@ -152,16 +165,6 @@ HRESULT CWasapiFilterManager::SetCurrentMediaType(CMediaType* pmt)
 		DebugPrintf(L"SampleReceived - Unkown format. Rejecting loud.\n");
 	}
 
-	CAutoLock lock(&m_MediaTypeLock);
-	HRESULT hr=S_OK;
-	if(m_pCurrentMediaTypeReceive)
-	{
-		m_pCurrentMediaTypeReceive->Release();
-	}
-
-	m_pCurrentMediaTypeReceive=new RefCountingMediaType();
-	CopyMediaType(m_pCurrentMediaTypeReceive,pmt);
-	m_currentMediaTypeSampleReceivedAction=newAction;
 	return hr;
 }
 

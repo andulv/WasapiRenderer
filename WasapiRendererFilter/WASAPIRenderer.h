@@ -14,11 +14,19 @@
 class RefCountingWaveFormatEx
 {
 public:
+	RefCountingWaveFormatEx():
+		m_refCount(0),
+		m_pFormat(NULL)
+	{
+		AddRef();
+	}
+
 	LONG AddRef()
 	{
 		return InterlockedIncrement(&m_refCount);
 		m_refCount++;
 	}
+
 	LONG Release()
 	{
 		int newValue=-1;
@@ -31,49 +39,57 @@ public:
 		return newValue;
 	}
 
-	RefCountingWaveFormatEx():
-		m_refCount(0),
-		m_pFormat(NULL)
+
+	BOOL operator == (const RefCountingWaveFormatEx& rt) const
 	{
-		AddRef();
+		// I don't believe we need to check sample size or
+		// temporal compression flags, since I think these must
+		// be represented in the type, subtype and format somehow. They
+		// are pulled out as separate flags so that people who don't understand
+		// the particular format representation can still see them, but
+		// they should duplicate information in the format block.
+
+		if(m_pFormat==NULL && rt.m_pFormat==NULL)
+			return true;
+
+		if(m_pFormat==NULL || rt.m_pFormat==NULL)
+			return false;
+
+		return 
+			m_pFormat->cbSize==rt.m_pFormat->cbSize &&
+			m_pFormat->nAvgBytesPerSec==rt.m_pFormat->nAvgBytesPerSec &&
+			m_pFormat->nBlockAlign==rt.m_pFormat->nBlockAlign &&
+			m_pFormat->nChannels==rt.m_pFormat->nChannels &&
+			m_pFormat->nSamplesPerSec==rt.m_pFormat->nSamplesPerSec &&
+			m_pFormat->wBitsPerSample==rt.m_pFormat->wBitsPerSample &&
+			m_pFormat->wFormatTag==rt.m_pFormat->wFormatTag;
 	}
 
-BOOL
-	operator == (const RefCountingWaveFormatEx& rt) const
-{
-    // I don't believe we need to check sample size or
-    // temporal compression flags, since I think these must
-    // be represented in the type, subtype and format somehow. They
-    // are pulled out as separate flags so that people who don't understand
-    // the particular format representation can still see them, but
-    // they should duplicate information in the format block.
+	BOOL operator != (const RefCountingWaveFormatEx& rt) const
+	{
+		/* Check to see if they are equal */
 
-	if(m_pFormat==NULL && rt.m_pFormat==NULL)
-		return true;
+		if (*this == rt) {
+			return FALSE;
+		}
+		return TRUE;
+	}
 
-	if(m_pFormat==NULL || rt.m_pFormat==NULL)
-		return false;
+	WAVEFORMATEX* GetFormat()
+	{
+		return m_pFormat;
+	}
 
-    return 
-		m_pFormat->cbSize==rt.m_pFormat->cbSize &&
-        m_pFormat->nAvgBytesPerSec==rt.m_pFormat->nAvgBytesPerSec &&
-        m_pFormat->nBlockAlign==rt.m_pFormat->nBlockAlign &&
-		m_pFormat->nChannels==rt.m_pFormat->nChannels &&
-		m_pFormat->nSamplesPerSec==rt.m_pFormat->nSamplesPerSec &&
-		m_pFormat->wBitsPerSample==rt.m_pFormat->wBitsPerSample &&
-		m_pFormat->wFormatTag==rt.m_pFormat->wFormatTag;
-}
+	static RefCountingWaveFormatEx* CopyAndCreate(WAVEFORMATEX* pSource)
+	{
+		int memSize=sizeof(WAVEFORMATEX) + pSource->cbSize;
+		byte* pDest = new byte[memSize];
+		CopyMemory(pDest,pSource,memSize);
 
-BOOL
-operator != (const RefCountingWaveFormatEx& rt) const
-{
-    /* Check to see if they are equal */
-
-    if (*this == rt) {
-        return FALSE;
-    }
-    return TRUE;
-}
+		RefCountingWaveFormatEx* retValue=new RefCountingWaveFormatEx();
+		retValue->m_pFormat=(WAVEFORMATEX*)pDest;
+		return retValue;
+	}
 
 protected:
 	volatile LONG m_refCount;
@@ -81,71 +97,11 @@ protected:
 };
 
 
-
-class RefCountingMediaType:public CMediaType
-{
-public:
-	LONG AddRef()
-	{
-		return InterlockedIncrement(&m_refCount);
-		m_refCount++;
-	}
-	LONG Release()
-	{
-		int newValue=-1;
-		newValue= InterlockedDecrementAcquire(&m_refCount);
-		if(newValue==0)
-		{
-			FreeMediaType(*this);
-			delete this;
-		}
-		return newValue;
-	}
-	RefCountingMediaType():
-	m_refCount(0)
-	{
-		AddRef();
-	}
-
-BOOL
-	operator == (const RefCountingMediaType& rt) const
-{
-    // I don't believe we need to check sample size or
-    // temporal compression flags, since I think these must
-    // be represented in the type, subtype and format somehow. They
-    // are pulled out as separate flags so that people who don't understand
-    // the particular format representation can still see them, but
-    // they should duplicate information in the format block.
-
-    return ((IsEqualGUID(majortype,rt.majortype) == TRUE) &&
-        (IsEqualGUID(subtype,rt.subtype) == TRUE) &&
-        (IsEqualGUID(formattype,rt.formattype) == TRUE) &&
-        (cbFormat == rt.cbFormat) &&
-        ( (cbFormat == 0) ||
-          pbFormat != NULL && rt.pbFormat != NULL &&
-          (memcmp(pbFormat, rt.pbFormat, cbFormat) == 0)));
-}
-
-BOOL
-operator != (const RefCountingMediaType& rt) const
-{
-    /* Check to see if they are equal */
-
-    if (*this == rt) {
-        return FALSE;
-    }
-    return TRUE;
-}
-
-protected:
-	volatile LONG m_refCount;
-};
-
 struct RenderBuffer
 {
     RenderBuffer *  _Next;
 	IMediaSample *pSample;
-	RefCountingMediaType *pMediaType;
+	RefCountingWaveFormatEx *pMediaType;
 	bool ExclusiveMode;
 
     RenderBuffer() :
@@ -172,7 +128,7 @@ public:
     bool Start(UINT32 EngineLatency);
     void Stop();
 	void SetIsProcessing(bool isOK);
-	void AddSampleToQueue(IMediaSample *pSample, RefCountingMediaType *pMediaType, bool isExclusive);
+	void AddSampleToQueue(IMediaSample *pSample, RefCountingWaveFormatEx *pMediaType, bool isExclusive);
 	void ClearQueue();
 	REFERENCE_TIME		GetCurrentSampleTime();
 	int					InitializedMode;
@@ -207,7 +163,7 @@ private:
 
     //  Render buffer management. - Accessed only from renderer thread
 	IMediaSample			*_pCurrentSample;
-	RefCountingMediaType	*_pCurrentMediaType;
+	RefCountingWaveFormatEx	*_pCurrentMediaType;
 	AUDCLNT_SHAREMODE		_ShareMode;
 	bool					_hasTriedExclusiveModeWithCurrentMediaType;
 	LONG					_CurrentSampleOffset;
