@@ -20,8 +20,10 @@ CWasapiFilterManager::CWasapiFilterManager(LPUNKNOWN pUnk, HRESULT *phr) :
     m_pPosition(NULL),
 	m_pRenderer(NULL),
 	m_pCurrentMediaTypeReceive(NULL),
+	m_pCurrentMediaTypeResample(NULL),
 	//m_pCurrentMediaTypeResample(NULL),
-	m_IsExclusive(true),
+	m_IsExclusive(false),
+	m_pResampler(new CResampler()),
 	m_currentMediaTypeSampleReceivedAction(ReceivedSampleActions_RejectLoud)
 {
     ASSERT(phr);
@@ -42,19 +44,37 @@ CWasapiFilterManager::CWasapiFilterManager(LPUNKNOWN pUnk, HRESULT *phr) :
         if (phr)
             *phr = E_OUTOFMEMORY;
         return;
+
     }
-	CResampler* resampler=new CResampler();
-	resampler->GetDeviceID();
+
 	m_pRenderer=new CWASAPIRenderer(NULL);
 }
 
-bool CWasapiFilterManager::CheckFormat(WAVEFORMATEX* requestedFormat, WAVEFORMATEX* suggestedFormat)
+bool CWasapiFilterManager::CheckFormat(WAVEFORMATEX* requestedFormat)
 {
+	bool retValue=false;
+
 	_AUDCLNT_SHAREMODE shareMode=AUDCLNT_SHAREMODE_SHARED;
 	if(m_IsExclusive)
 		shareMode=AUDCLNT_SHAREMODE_EXCLUSIVE;
 
-	return m_pRenderer->CheckFormat(requestedFormat, suggestedFormat, shareMode);
+	WAVEFORMATEX* pSuggestedFormat=NULL;
+
+	bool isSupportedNoResample = m_pRenderer->CheckFormat(requestedFormat, &pSuggestedFormat, shareMode);
+	if(isSupportedNoResample) {
+		retValue= true;
+		goto exit;
+	}
+
+	if(CResampler::CanResample(requestedFormat, pSuggestedFormat)) {
+		retValue= true;
+		goto exit;
+	}
+exit:
+	if(pSuggestedFormat) {
+		CoTaskMemFree(pSuggestedFormat);
+	}
+	return retValue;
 }
 
 bool CWasapiFilterManager::StartRendering()
@@ -78,7 +98,6 @@ bool CWasapiFilterManager::ClearQueue()
 	m_pRenderer->ClearQueue();
 	return true;
 }
-
 
 bool CWasapiFilterManager::StopRendering(bool clearQueue)
 {
@@ -116,6 +135,7 @@ HRESULT CWasapiFilterManager::SetExclusiveMode(bool pIsExclusive)
 {
 	HRESULT hr=S_OK;
 	m_IsExclusive=pIsExclusive;
+	ConfigureFormat();
 	return hr;
 }
 
@@ -126,14 +146,73 @@ HRESULT CWasapiFilterManager::GetActiveMode(int* pMode)
 	return hr;
 }
 
-//Is called from InputsPin->SetMediaType (Graph control thread) and from SampleReceived (parser/decoder thread)
+//Invoked:
+//- When "user" switches exclusive mode on/off
+//- When mediatype has changed
+//Sets m_pCurrentMediaTypeResample and initializes resampler based on m_pCurrentMediaTypeReceive, exclusive/shared mode and wasapi engines suggestion.
+//m_pCurrentMediaTypeResample is set to NULL if resample is not required (or resampling not possible)
+HRESULT CWasapiFilterManager::ConfigureFormat()
+{
+	CAutoLock lock(&m_MediaTypeLock);
+
+	if(!m_pCurrentMediaTypeReceive)
+		return E_FAIL;
+
+	WAVEFORMATEX* pSrcFormat=m_pCurrentMediaTypeReceive->GetFormat();
+
+	if(!pSrcFormat)
+		return E_FAIL;
+
+	if(m_pCurrentMediaTypeResample)
+	{
+		m_pCurrentMediaTypeResample->Release();
+		m_pCurrentMediaTypeResample=NULL;
+	}
+
+	WAVEFORMATEX* pSuggestedFormat=NULL;
+
+	AUDCLNT_SHAREMODE shareMode=AUDCLNT_SHAREMODE_SHARED;
+	if(m_IsExclusive)
+		shareMode=AUDCLNT_SHAREMODE_EXCLUSIVE;
+
+	bool isSupportedNoResample = m_pRenderer->CheckFormat(m_pCurrentMediaTypeReceive->GetFormat(), &pSuggestedFormat, shareMode);
+	
+	if(pSuggestedFormat)
+	{
+		if(!isSupportedNoResample)
+		{
+			m_pCurrentMediaTypeResample = RefCountingWaveFormatEx::CopyAndCreate(pSuggestedFormat);
+		}
+		CoTaskMemFree(pSuggestedFormat);
+	}
+
+	if(isSupportedNoResample)
+	{
+		return S_OK;
+	}
+
+	if(!m_pCurrentMediaTypeResample)			//Source format not supported, no suggested format (if this happens in real life we should try to
+	{
+		return S_FALSE;
+	}
+
+
+	if(CResampler::CanResample(pSrcFormat, m_pCurrentMediaTypeResample->GetFormat()))
+	{
+		return S_OK;
+	}
+
+	return S_FALSE;			//Can not resample to suggested format
+}
+
+//Invoked from InputsPin->SetMediaType (Graph control thread) and from SampleReceived (parser/decoder thread)
+//Sets m_pCurrentMediaTypeReceive based on the CMediaType parameter
 HRESULT CWasapiFilterManager::SetCurrentMediaType(CMediaType* pmt)
 {
 	ReceivedSampleActions newAction=ReceivedSampleActions_RejectLoud;
-
-	CAutoLock lock(&m_MediaTypeLock);
 	HRESULT hr=S_OK;
 
+	CAutoLock lock(&m_MediaTypeLock);
 	if(m_pCurrentMediaTypeReceive)
 	{
 		m_pCurrentMediaTypeReceive->Release();
@@ -143,18 +222,12 @@ HRESULT CWasapiFilterManager::SetCurrentMediaType(CMediaType* pmt)
 	if(pmt->formattype==FORMAT_WaveFormatEx)
 	{
 		WAVEFORMATEX* formatNew=(WAVEFORMATEX*)pmt->pbFormat;
-		WAVEFORMATEX* suggestedFormat=NULL;
-		
-		bool isOK=CheckFormat(formatNew,suggestedFormat);
-		if(isOK)
-			newAction=ReceivedSampleActions_Accept;
-		if(suggestedFormat)
-			CoTaskMemFree(suggestedFormat);
-
 		m_pCurrentMediaTypeReceive = RefCountingWaveFormatEx::CopyAndCreate(formatNew);
-		m_currentMediaTypeSampleReceivedAction=newAction;
 
-		DebugPrintf(L"SetCurrentMediaType - FORMAT_WaveFormatEx format. isOK: %d\n",isOK);
+		if(ConfigureFormat()==S_OK)
+		{
+			newAction=ReceivedSampleActions_Accept;
+		}
 	}
 	else if(pmt->formattype==FORMAT_None)
 	{
@@ -165,6 +238,7 @@ HRESULT CWasapiFilterManager::SetCurrentMediaType(CMediaType* pmt)
 		DebugPrintf(L"SampleReceived - Unkown format. Rejecting loud.\n");
 	}
 
+	m_currentMediaTypeSampleReceivedAction=newAction;
 	return hr;
 }
 
@@ -188,10 +262,16 @@ HRESULT CWasapiFilterManager::SampleReceived(IMediaSample *pSample)
 	if(m_currentMediaTypeSampleReceivedAction==ReceivedSampleActions_Accept)
 	{
 		hr=S_OK;
-		//pSample->AddRef();
-		m_pCurrentMediaTypeReceive->AddRef();
-		SimpleSample* pSimple=SimpleSample::CopyAndCreate(pSample);
-		m_pRenderer->AddSampleToQueue(pSimple,m_pCurrentMediaTypeReceive,m_IsExclusive);  //Renderer will release sample and delete mediaType after they are pulled/cleared from the queue.
+
+		RefCountingWaveFormatEx* srcRefType=m_pCurrentMediaTypeReceive;
+		srcRefType->AddRef();
+		RefCountingWaveFormatEx* destRefType=(m_pCurrentMediaTypeResample == NULL ?  srcRefType : m_pCurrentMediaTypeResample);
+		destRefType->AddRef();
+
+		SimpleSample* pSimple = m_pResampler->CreateSample(pSample,srcRefType->GetFormat(),destRefType->GetFormat());
+		srcRefType->Release();
+
+		m_pRenderer->AddSampleToQueue(pSimple,destRefType,m_IsExclusive);  //Renderer will release sample and mediaType after they are pulled/cleared from the queue.
 	}
 	else if(m_currentMediaTypeSampleReceivedAction==ReceivedSampleActions_RejectLoud)
 	{
@@ -212,6 +292,8 @@ CWasapiFilterManager::~CWasapiFilterManager()
 	if(m_pRenderer)
 		delete m_pRenderer;
 	m_pRenderer=NULL;
+
+	delete m_pResampler;
 }
 
 REFERENCE_TIME CWasapiFilterManager::GetPrivateTime()

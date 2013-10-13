@@ -42,11 +42,7 @@ HRESULT CWasapiInputPin::CheckMediaType(const CMediaType* mt)
 	HRESULT hr=S_FALSE;
 	if(mt->formattype==FORMAT_WaveFormatEx)
 	{
-		WAVEFORMATEX* suggestedFormat=NULL;
-
-		bool isOK=m_pManager->CheckFormat((WAVEFORMATEX*)mt->pbFormat,suggestedFormat);
-		if(suggestedFormat)
-			CoTaskMemFree(suggestedFormat);
+		bool isOK=m_pManager->CheckFormat((WAVEFORMATEX*)mt->pbFormat);
 		if(isOK)
 			hr=S_OK;
 		DebugPrintf(L"CWasapiInputPin::CheckMediaType - WaveFormatEx: ISOK: %d\n",isOK);

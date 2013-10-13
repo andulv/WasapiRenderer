@@ -1,6 +1,7 @@
 class CWASAPIRenderer;
 class CWasapiInputPin;
 class CWasapiFilter;
+class CResampler;
 
     enum ReceivedSampleActions
     {
@@ -19,6 +20,8 @@ class CWasapiFilterManager : public IRendererFilterWasapi, public CBaseReference
     CWasapiFilter			*m_pFilter;       // Methods for filter interfaces
     CWasapiInputPin			*m_pPin;          // A simple rendered input pin
 	CWASAPIRenderer			*m_pRenderer;
+	CResampler				*m_pResampler;
+
 
 	CPosPassThru			*m_pPosition;      // Renderer position controls
 
@@ -27,6 +30,7 @@ class CWasapiFilterManager : public IRendererFilterWasapi, public CBaseReference
     CCritSec				m_MediaTypeLock;         // Sublock for received samples
 
 	RefCountingWaveFormatEx	*m_pCurrentMediaTypeReceive;
+	RefCountingWaveFormatEx	*m_pCurrentMediaTypeResample;
 	//RefCountingWaveFormatEx	*m_pCurrentMediaTypeResample;
 	ReceivedSampleActions	m_currentMediaTypeSampleReceivedAction;
 	bool					m_IsExclusive;
@@ -51,16 +55,17 @@ public:
 	bool PauseRendering();
 	bool StopRendering(bool clearQueue);
 	bool ClearQueue();
-	bool CheckFormat(WAVEFORMATEX* requestedFormat, WAVEFORMATEX* suggestedFormat);
+	bool CheckFormat(WAVEFORMATEX* requestedFormat);
 	STDMETHOD(GetWasapiMixFormat)(WAVEFORMATEX** ppFormat);
 	STDMETHOD(GetExclusiveMode)(bool* pIsExclusive);
 	STDMETHOD(SetExclusiveMode)(bool pIsExclusive);
 	STDMETHOD(GetActiveMode)(int* pMode);
 	STDMETHOD(SetDevice)(LPCWSTR pDevID);
-protected:
+
+private:
+	HRESULT ConfigureFormat();
 	HRESULT SetCurrentMediaType(CMediaType* pmt);
 	REFERENCE_TIME GetPrivateTime();
-private:
     // Overriden to say what interfaces we support where
     STDMETHODIMP NonDelegatingQueryInterface(REFIID riid, void ** ppv);
 };

@@ -127,8 +127,11 @@ exit:
 	return retValue;
 }
 
-bool CWASAPIRenderer::CheckFormat(WAVEFORMATEX* requestedFormat, WAVEFORMATEX* suggestedFormat, AUDCLNT_SHAREMODE shareMode)
+//Returns true if format can be used in specified mode.
+//Returns a suggested alternative mode if format can not be used.
+bool CWASAPIRenderer::CheckFormat(WAVEFORMATEX* requestedFormat, WAVEFORMATEX** ppSuggestedFormat, AUDCLNT_SHAREMODE shareMode)
 {
+	WAVEFORMATEX* pSuggestedFormat=NULL;
 	IAudioClient* audioClient;
 	bool retValue=false;
     HRESULT hr = _Endpoint->Activate(__uuidof(IAudioClient), CLSCTX_INPROC_SERVER, NULL, reinterpret_cast<void **>(&audioClient));
@@ -137,12 +140,20 @@ bool CWASAPIRenderer::CheckFormat(WAVEFORMATEX* requestedFormat, WAVEFORMATEX* s
         DebugPrintf(L"CWASAPIRenderer - Unable to activate audio client: %x.\n", hr);
 		return false;
     }
-    hr = audioClient->IsFormatSupported(shareMode,requestedFormat, &suggestedFormat);
+
+    hr = audioClient->IsFormatSupported(shareMode,requestedFormat, &pSuggestedFormat);
     if (hr == S_OK)
     {
 		retValue=true;
+		goto exit;
 	}
+
+	if(!pSuggestedFormat) {
+		hr = audioClient->GetMixFormat(&pSuggestedFormat);
+	}
+
 exit:
+	*ppSuggestedFormat=pSuggestedFormat;
 	SafeRelease(&audioClient);
 	return retValue;
 }
@@ -530,7 +541,7 @@ bool CWASAPIRenderer::PopulateCurrentFromQueue()
 			{
 				WAVEFORMATEX* formatNew=_pCurrentMediaType->GetFormat();
 				WAVEFORMATEX* suggestedFormat=NULL;
-				bool isOK=CheckFormat(formatNew,suggestedFormat,newShareMode);
+				bool isOK=CheckFormat(formatNew,&suggestedFormat,newShareMode);
 				if(isOK)
 				{
 					_ShareMode=newShareMode;

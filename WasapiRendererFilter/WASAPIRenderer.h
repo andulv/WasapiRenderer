@@ -10,7 +10,6 @@
 #include <AudioClient.h>
 #include <AudioPolicy.h>
 
-
 class RefCountingWaveFormatEx
 {
 public:
@@ -96,7 +95,6 @@ protected:
 	WAVEFORMATEX* m_pFormat;
 };
 
-
 class SimpleSample
 {
 public:
@@ -136,14 +134,35 @@ public:
 
 		byte* pSourceBuffer;
 		pSource->GetPointer(&pSourceBuffer);
-		byte* pDest = new byte[retValue->m_dataLength];
-		CopyMemory(pDest, pSourceBuffer, retValue->m_dataLength);
-		retValue->m_pSampleData=pDest;
+
+		byte* pDestBuffer = new byte[retValue->m_dataLength];
+		CopyMemory(pDestBuffer, pSourceBuffer, retValue->m_dataLength);
+		retValue->m_pSampleData=pDestBuffer;
 		retValue->m_pSample=pSource;
 		pSource->AddRef();
 		return retValue;
 	}
 
+	static SimpleSample* AllocateAndCreate(IMediaSample* pSource,  long destSize)
+	{
+		SimpleSample* retValue=new SimpleSample();
+		pSource->GetTime(&(retValue->TimeStart),&(retValue->TimeEnd));
+
+		byte* pDestBuffer = new byte[destSize];
+		ZeroMemory(pDestBuffer,destSize);
+
+		retValue->m_dataLength = destSize;
+		retValue->m_pSampleData=pDestBuffer;
+		retValue->m_pSample=pSource;
+		pSource->AddRef();
+		return retValue;
+	}
+
+
+	void SetActualDataLength(long value)
+	{
+		m_dataLength=value;
+	}
 	long GetActualDataLength()
 	{
 		return m_dataLength;
@@ -165,7 +184,6 @@ protected:
 	IMediaSample* m_pSample;
 
 };
-
 
 struct RenderBuffer
 {
@@ -194,7 +212,7 @@ public:
     ~CWASAPIRenderer(void);
 
 	WAVEFORMATEX* GetWasapiMixFormat();
-	bool CheckFormat(WAVEFORMATEX* requestedFormat, WAVEFORMATEX* suggestedFormat, AUDCLNT_SHAREMODE shareMode);
+	bool CheckFormat(WAVEFORMATEX* requestedFormat, WAVEFORMATEX** suggestedFormat, AUDCLNT_SHAREMODE shareMode);
     bool Start(UINT32 EngineLatency);
     void Stop();
 	void SetIsProcessing(bool isOK);
