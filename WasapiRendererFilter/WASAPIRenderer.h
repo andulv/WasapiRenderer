@@ -143,6 +143,18 @@ public:
 		return retValue;
 	}
 
+		static SimpleSample* Create(IMediaSample* pSource, byte* buffer,  long destSize)
+	{
+		SimpleSample* retValue=new SimpleSample();
+		pSource->GetTime(&(retValue->TimeStart),&(retValue->TimeEnd));
+
+		retValue->m_dataLength = destSize;
+		retValue->m_pSampleData=buffer;
+		retValue->m_pSample=pSource;
+		pSource->AddRef();
+		return retValue;
+	}
+
 	static SimpleSample* AllocateAndCreate(IMediaSample* pSource,  long destSize)
 	{
 		SimpleSample* retValue=new SimpleSample();

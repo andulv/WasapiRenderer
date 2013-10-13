@@ -17,7 +17,8 @@ public:
 extern "C" {
 #define __STDC_CONSTANT_MACROS
 
-#include "libavresample/avresample.h"
+#include "libavutil/channel_layout.h"
+#include "libswresample/swresample.h"
 #include "libavutil\opt.h"
 }
 #pragma warning(pop)
@@ -38,7 +39,7 @@ private:
 	void ReleaseContext();
 
 
-	AVAudioResampleContext *m_avrContext;
+	SwrContext *m_avrContext;
 
 	WAVEFORMATEX* m_pCurrentSourceFormat;
 	WAVEFORMATEX* m_pCurrentDestFormat;

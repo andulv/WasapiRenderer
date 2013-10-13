@@ -255,7 +255,7 @@ void CWASAPIRenderer::ClearQueue()
 
 void CWASAPIRenderer::AddSampleToQueue(SimpleSample *pSample, RefCountingWaveFormatEx *pMediaType, bool isExclusive)
 {
-	RenderBuffer *newNode = new (std::nothrow) RenderBuffer();
+	RenderBuffer *newNode = new RenderBuffer();
 	newNode->pSample=pSample;
 	newNode->pMediaType=pMediaType;
 	newNode->ExclusiveMode=isExclusive;

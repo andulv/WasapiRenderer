@@ -34,6 +34,9 @@ int ChannelLayoutFromWaveFormat(WAVEFORMATEX* pFormat)
 	if(pFormat->nChannels==1)
 		return AV_CH_LAYOUT_MONO;
 
+	if(pFormat->nChannels==4)
+		return AV_CH_LAYOUT_4POINT0;
+
 	return AV_CH_LAYOUT_STEREO;
 }
 
@@ -74,7 +77,7 @@ AVSampleFormat SampleFormatFromWaveFormat(WAVEFORMATEX* pFormat)
 		case 24:
 			return isFloat ? AV_SAMPLE_FMT_NONE : AV_SAMPLE_FMT_S32 ;			//libswresample does not support 24 bit. We must convert to 32... (and 24 bit can only be integers)
 		case 32:
-			return isFloat ? AV_SAMPLE_FMT_DBL : AV_SAMPLE_FMT_S32 ;
+			return isFloat ? AV_SAMPLE_FMT_FLT : AV_SAMPLE_FMT_S32 ;
 		default:
 			return AV_SAMPLE_FMT_NONE;
 			break;
@@ -127,42 +130,46 @@ SimpleSample* CResampler::CreateSample(IMediaSample* pSrcSample, WAVEFORMATEX* p
 		CopyMemory(pBuffer,pDestFormat,memSize);
 		m_pCurrentDestFormat = (WAVEFORMATEX*)pBuffer; 
 
-		m_pCurrentDestFormat->nSamplesPerSec=m_pCurrentDestFormat->nSamplesPerSec / 2;
+		m_pCurrentDestFormat->nSamplesPerSec=m_pCurrentDestFormat->nSamplesPerSec;
 
 		InitContext();
 	}
 
-	byte *pSourceBuffer[1];
-	pSrcSample->GetPointer(&pSourceBuffer[0]);
+	byte *pSourceBuffer;
+	pSrcSample->GetPointer(&pSourceBuffer);
+	const byte **ppSourceBuffer=(const byte **)&pSourceBuffer;
+
 
 	int bytesPerSampleDest=(m_pCurrentDestFormat->wBitsPerSample) / 8; 
 	int bytesPerSampleSource=(m_pCurrentSourceFormat->wBitsPerSample) / 8;
 	int sourceSize = pSrcSample->GetActualDataLength();
 	int nSourceSamples = sourceSize / (m_pCurrentSourceFormat->nChannels * bytesPerSampleSource);
-	double dDestSamples = (double)nSourceSamples * ((double)m_pCurrentDestFormat->nSamplesPerSec / (double)m_pCurrentSourceFormat->nSamplesPerSec);
-	int nDestSamples = (int)dDestSamples + 1;
-
-	long ffAligned=FFALIGN(nDestSamples, 32);
+	int nDestSamples = av_rescale_rnd(swr_get_delay(m_avrContext, m_pCurrentSourceFormat->nSamplesPerSec) + nSourceSamples, m_pCurrentDestFormat->nSamplesPerSec, m_pCurrentSourceFormat->nSamplesPerSec, AV_ROUND_UP);
+	//long ffAligned=FFALIGN(nDestSamples, 32);
 	long destSize = nDestSamples * m_pCurrentDestFormat->nChannels * bytesPerSampleDest;
-	auto retSample = SimpleSample::AllocateAndCreate(pSrcSample,destSize);		
 
-	byte *retBuffer[1];
-	retBuffer[0]=retSample->GetPointer();
+	//uint8_t *output;
+	int linesize;
+	int bufferSize = av_samples_get_buffer_size(&linesize ,m_pCurrentDestFormat->nChannels, nDestSamples, SampleFormatFromWaveFormat(m_pCurrentDestFormat), 0);
+	
+	auto retSample = SimpleSample::AllocateAndCreate(pSrcSample,bufferSize);
+	byte *pRetBuffer = retSample->GetPointer();
 
-	int nResampledSamples = avresample_convert(m_avrContext, retBuffer, destSize, nDestSamples, pSourceBuffer, sourceSize, nSourceSamples);
+
+	int nResampledSamples = swr_convert(m_avrContext, &pRetBuffer, nDestSamples, ppSourceBuffer, nSourceSamples);
 	int nResampledBytes = nResampledSamples * m_pCurrentDestFormat->nChannels * bytesPerSampleDest;
 
-	retSample->SetActualDataLength(nResampledBytes);
-	int nRemainingSamplesInDelayBuffer=avresample_get_delay(m_avrContext);
-	int nRemainingSamplesInFifoBuffer=avresample_available(m_avrContext);
-
+	//retSample->SetActualDataLength(nResampledBytes);
+	//int nRemainingSamplesInDelayBuffer=avresample_get_delay(m_avrContext);
+	//int nRemainingSamplesInFifoBuffer=avresample_available(m_avrContext);
+	//return SimpleSample::Create(pSrcSample,pRetBuffer, linesize);	
 	return retSample;
 }
 
 HRESULT CResampler::InitContext()
 {
 	ReleaseContext();
-	m_avrContext = avresample_alloc_context();
+	m_avrContext = swr_alloc();
 
 	int sourceChannelLayout=ChannelLayoutFromWaveFormat(m_pCurrentSourceFormat);
 	int destChannelLayout=ChannelLayoutFromWaveFormat(m_pCurrentDestFormat);
@@ -170,13 +177,16 @@ HRESULT CResampler::InitContext()
 	AVSampleFormat sourceSampleFormat=SampleFormatFromWaveFormat(m_pCurrentSourceFormat);
 	AVSampleFormat destSampleFormat=SampleFormatFromWaveFormat(m_pCurrentDestFormat);
 	
+
+	av_opt_set_int(m_avrContext, "in_channel_layout",  sourceChannelLayout, 0);
+	av_opt_set(m_avrContext,"resampler","soxr",0);
 	av_opt_set_int(m_avrContext, "in_channel_layout",  sourceChannelLayout, 0);
 	av_opt_set_int(m_avrContext, "out_channel_layout", destChannelLayout, 0);
 	av_opt_set_int(m_avrContext, "in_sample_rate", m_pCurrentSourceFormat->nSamplesPerSec, 0);
 	av_opt_set_int(m_avrContext, "out_sample_rate",  m_pCurrentDestFormat->nSamplesPerSec, 0);
-	av_opt_set_int(m_avrContext, "in_sample_fmt", sourceSampleFormat, 0);
-	av_opt_set_int(m_avrContext, "out_sample_fmt", destSampleFormat, 0);
-	int result = avresample_open(m_avrContext);
+	av_opt_set_sample_fmt(m_avrContext, "in_sample_fmt", sourceSampleFormat, 0);
+	av_opt_set_sample_fmt(m_avrContext, "out_sample_fmt", destSampleFormat, 0);
+	int result = swr_init(m_avrContext);
 	return S_OK;
 }
 
@@ -184,7 +194,6 @@ void CResampler::ReleaseContext()
 {
 	if(m_avrContext)
 	{
-		avresample_free(&m_avrContext);
-		m_avrContext=NULL;
+		swr_free(&m_avrContext);
 	}
 }
