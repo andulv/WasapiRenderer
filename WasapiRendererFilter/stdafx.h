@@ -24,8 +24,19 @@
 #include <mmdeviceapi.h>
 #include <audiopolicy.h>
 #pragma warning(pop)
+#include <mfapi.h>
+#include <mfidl.h>
+#include <assert.h>
 
+class IMediaBufferEx : public IMediaBuffer
+{
+public:
+	//virtual HRESULT STDMETHODCALLTYPE SetSampleTimes(REFERENCE_TIME rtStart, REFERENCE_TIME rtEnd) = 0;
 
+	virtual REFERENCE_TIME STDMETHODCALLTYPE GetStartTime() = 0;
+	virtual REFERENCE_TIME STDMETHODCALLTYPE GetEndTime() = 0;
+        
+};
 
 //extern bool DisableMMCSS;
 

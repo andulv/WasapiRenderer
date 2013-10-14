@@ -10,6 +10,8 @@
 #include <AudioClient.h>
 #include <AudioPolicy.h>
 
+class IMediaBufferEx;
+
 class RefCountingWaveFormatEx
 {
 public:
@@ -95,112 +97,10 @@ protected:
 	WAVEFORMATEX* m_pFormat;
 };
 
-class SimpleSample
-{
-public:
-	SimpleSample():
-		m_refCount(0),
-		m_pSampleData(NULL),
-		m_dataLength(0)
-	{
-		AddRef();
-	}
-
-	LONG AddRef()
-	{
-		return InterlockedIncrement(&m_refCount);
-		m_refCount++;
-	}
-
-	LONG Release()
-	{
-		int newValue=-1;
-		newValue= InterlockedDecrementAcquire(&m_refCount);
-		if(newValue==0)
-		{
-			m_pSample->Release();
-			delete m_pSampleData;
-			delete this;
-		}
-		return newValue;
-	}
-
-
-	static SimpleSample* CopyAndCreate(IMediaSample* pSource)
-	{
-		SimpleSample* retValue=new SimpleSample();
-		retValue->m_dataLength = pSource->GetActualDataLength();
-		pSource->GetTime(&(retValue->TimeStart),&(retValue->TimeEnd));
-
-		byte* pSourceBuffer;
-		pSource->GetPointer(&pSourceBuffer);
-
-		byte* pDestBuffer = new byte[retValue->m_dataLength];
-		CopyMemory(pDestBuffer, pSourceBuffer, retValue->m_dataLength);
-		retValue->m_pSampleData=pDestBuffer;
-		retValue->m_pSample=pSource;
-		pSource->AddRef();
-		return retValue;
-	}
-
-		static SimpleSample* Create(IMediaSample* pSource, byte* buffer,  long destSize)
-	{
-		SimpleSample* retValue=new SimpleSample();
-		pSource->GetTime(&(retValue->TimeStart),&(retValue->TimeEnd));
-
-		retValue->m_dataLength = destSize;
-		retValue->m_pSampleData=buffer;
-		retValue->m_pSample=pSource;
-		pSource->AddRef();
-		return retValue;
-	}
-
-	static SimpleSample* AllocateAndCreate(IMediaSample* pSource,  long destSize)
-	{
-		SimpleSample* retValue=new SimpleSample();
-		pSource->GetTime(&(retValue->TimeStart),&(retValue->TimeEnd));
-
-		byte* pDestBuffer = new byte[destSize];
-		ZeroMemory(pDestBuffer,destSize);
-
-		retValue->m_dataLength = destSize;
-		retValue->m_pSampleData=pDestBuffer;
-		retValue->m_pSample=pSource;
-		pSource->AddRef();
-		return retValue;
-	}
-
-
-	void SetActualDataLength(long value)
-	{
-		m_dataLength=value;
-	}
-	long GetActualDataLength()
-	{
-		return m_dataLength;
-	}
-
-	byte* GetPointer()
-	{
-		return m_pSampleData;
-	}
-
-public:
-		REFERENCE_TIME TimeStart, TimeEnd;
-
-protected:
-	volatile LONG m_refCount;
-	byte* m_pSampleData;
-	long m_dataLength;
-
-	IMediaSample* m_pSample;
-
-};
-
 struct RenderBuffer
 {
     RenderBuffer *  _Next;
-	SimpleSample *pSample;
+	IMediaBufferEx *pSample;
 	RefCountingWaveFormatEx *pMediaType;
 	bool ExclusiveMode;
 
@@ -228,7 +128,7 @@ public:
     bool Start(UINT32 EngineLatency);
     void Stop();
 	void SetIsProcessing(bool isOK);
-	void AddSampleToQueue(SimpleSample *pSample, RefCountingWaveFormatEx *pMediaType, bool isExclusive);
+	void AddSampleToQueue(IMediaBufferEx *pSample, RefCountingWaveFormatEx *pMediaType, bool isExclusive);
 	void ClearQueue();
 	REFERENCE_TIME		GetCurrentSampleTime();
 	int					InitializedMode;
@@ -262,7 +162,7 @@ private:
 	bool				m_bIsProcessing;
 
     //  Render buffer management. - Accessed only from renderer thread
-	SimpleSample			*_pCurrentSample;
+	IMediaBufferEx			*_pCurrentSample;
 	RefCountingWaveFormatEx	*_pCurrentMediaType;
 	AUDCLNT_SHAREMODE		_ShareMode;
 	bool					_hasTriedExclusiveModeWithCurrentMediaType;

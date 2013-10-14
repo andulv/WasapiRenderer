@@ -4,6 +4,8 @@
 #include <avrt.h>
 #include "WASAPIRenderer.h"
 #include "CResampler.h"
+#include <wmcodecdsp.h>
+#include <dmo.h>
 
 //#include <streams.h>
 //#include "WasapiRendererFilteruids.h"
@@ -15,7 +17,8 @@
 //#include "CWasapiFilterManager.h"
 
 CResampler::CResampler()
-	: m_avrContext(NULL),
+	: m_pTransform(NULL),
+	m_pDMO(NULL),
 	m_pCurrentDestFormat(NULL),
 	m_pCurrentSourceFormat(NULL)
 {
@@ -29,60 +32,6 @@ CResampler::~CResampler()
 	delete m_pCurrentSourceFormat;
 }
 
-int ChannelLayoutFromWaveFormat(WAVEFORMATEX* pFormat)
-{
-	if(pFormat->nChannels==1)
-		return AV_CH_LAYOUT_MONO;
-
-	if(pFormat->nChannels==4)
-		return AV_CH_LAYOUT_4POINT0;
-
-	return AV_CH_LAYOUT_STEREO;
-}
-
-AVSampleFormat SampleFormatFromWaveFormat(WAVEFORMATEX* pFormat)
-{
-	bool isFloat=false;
-	bool isUnknown=true;
-	if(pFormat->wFormatTag==WAVE_FORMAT_IEEE_FLOAT) {
-		isFloat=true;
-		isUnknown=false;
-	}
-	else if(pFormat->wFormatTag==WAVE_FORMAT_PCM) {
-		isFloat=false;
-		isUnknown=false;
-	}
-	else if(pFormat->wFormatTag==WAVE_FORMAT_EXTENSIBLE) {
-		WAVEFORMATEXTENSIBLE* pExtens=(WAVEFORMATEXTENSIBLE*)pFormat;
-		if(pExtens->SubFormat==KSDATAFORMAT_SUBTYPE_PCM){
-			isFloat=false;
-			isUnknown=false;
-		}
-		else if(pExtens->SubFormat==KSDATAFORMAT_SUBTYPE_IEEE_FLOAT) {
-			isFloat=true;
-			isUnknown=false;
-		}
-	}
-
-	if(isUnknown)
-		return AV_SAMPLE_FMT_NONE;
-
-
-	switch (pFormat->wBitsPerSample)
-	{
-		case 8:
-			return isFloat ? AV_SAMPLE_FMT_NONE : AV_SAMPLE_FMT_U8;;			//Dont support 8 bit float...
-		case 16:
-			return isFloat ? AV_SAMPLE_FMT_FLT : AV_SAMPLE_FMT_S16 ;
-		case 24:
-			return isFloat ? AV_SAMPLE_FMT_NONE : AV_SAMPLE_FMT_S32 ;			//libswresample does not support 24 bit. We must convert to 32... (and 24 bit can only be integers)
-		case 32:
-			return isFloat ? AV_SAMPLE_FMT_FLT : AV_SAMPLE_FMT_S32 ;
-		default:
-			return AV_SAMPLE_FMT_NONE;
-			break;
-	}
-}
 
 bool CResampler::CanResample(WAVEFORMATEX* pSourceFormat, WAVEFORMATEX* pDestFormat)
 {
@@ -105,15 +54,19 @@ bool SampleFormatEquals(WAVEFORMATEX* pformat1, WAVEFORMATEX* pformat2)
 		pformat1->wBitsPerSample==pformat2->wBitsPerSample;		   
 }
 
-SimpleSample* CResampler::CreateSample(IMediaSample* pSrcSample, WAVEFORMATEX* pSourceFormat, WAVEFORMATEX* pDestFormat)
+IMediaBufferEx* CResampler::CreateSample(IMediaSample* pSrcSample, WAVEFORMATEX* pSourceFormat, WAVEFORMATEX* pDestFormat)
 {
-	//if(SampleFormatEquals(pSourceFormat,pDestFormat))
-	//{
-	//	return SimpleSample::CopyAndCreate(pSrcSample);			//No conversion needed. Received sample can be played back directly.
-	//}
+	CMediaBufferSampleWrapper* pSrcSampleWrapped=new CMediaBufferSampleWrapper(pSrcSample);
 
-	if(m_avrContext == NULL )//|| !SampleFormatEquals(pSourceFormat, m_pCurrentSourceFormat) || ! SampleFormatEquals(pDestFormat, m_pCurrentDestFormat))
+	if(pDestFormat== NULL || SampleFormatEquals(pSourceFormat,pDestFormat))
 	{
+		return pSrcSampleWrapped;			//No conversion needed. Received sample can be played back directly.
+	}
+
+	if(m_pTransform == NULL || !SampleFormatEquals(pSourceFormat, m_pCurrentSourceFormat) || ! SampleFormatEquals(pDestFormat, m_pCurrentDestFormat))
+	{
+		//Set source and destination formats and init resampler context
+
 		if(m_pCurrentSourceFormat) {
 			delete m_pCurrentSourceFormat;
 		}
@@ -130,70 +83,75 @@ SimpleSample* CResampler::CreateSample(IMediaSample* pSrcSample, WAVEFORMATEX* p
 		CopyMemory(pBuffer,pDestFormat,memSize);
 		m_pCurrentDestFormat = (WAVEFORMATEX*)pBuffer; 
 
-		m_pCurrentDestFormat->nSamplesPerSec=m_pCurrentDestFormat->nSamplesPerSec;
-
 		InitContext();
 	}
 
-	byte *pSourceBuffer;
-	pSrcSample->GetPointer(&pSourceBuffer);
-	const byte **ppSourceBuffer=(const byte **)&pSourceBuffer;
-
-
+	//Calculate size needed for resampling destination buffer
 	int bytesPerSampleDest=(m_pCurrentDestFormat->wBitsPerSample) / 8; 
 	int bytesPerSampleSource=(m_pCurrentSourceFormat->wBitsPerSample) / 8;
 	int sourceSize = pSrcSample->GetActualDataLength();
 	int nSourceSamples = sourceSize / (m_pCurrentSourceFormat->nChannels * bytesPerSampleSource);
-	int nDestSamples = av_rescale_rnd(swr_get_delay(m_avrContext, m_pCurrentSourceFormat->nSamplesPerSec) + nSourceSamples, m_pCurrentDestFormat->nSamplesPerSec, m_pCurrentSourceFormat->nSamplesPerSec, AV_ROUND_UP);
-	//long ffAligned=FFALIGN(nDestSamples, 32);
-	long destSize = nDestSamples * m_pCurrentDestFormat->nChannels * bytesPerSampleDest;
+	double dDestSamples = (double)nSourceSamples * ((double)m_pCurrentDestFormat->nSamplesPerSec / (double)m_pCurrentSourceFormat->nSamplesPerSec);
+	int nDestSamples = (int)dDestSamples + 1;			//Ensure that value is not rounded down
+	long destSize= nDestSamples * bytesPerSampleDest * m_pCurrentDestFormat->nChannels;
 
-	//uint8_t *output;
-	int linesize;
-	int bufferSize = av_samples_get_buffer_size(&linesize ,m_pCurrentDestFormat->nChannels, nDestSamples, SampleFormatFromWaveFormat(m_pCurrentDestFormat), 0);
-	
-	auto retSample = SimpleSample::AllocateAndCreate(pSrcSample,bufferSize);
-	byte *pRetBuffer = retSample->GetPointer();
+	REFERENCE_TIME timeStart, timeEnd;
+	pSrcSample->GetTime(&timeStart,&timeEnd);
+	HRESULT hr = m_pDMO->ProcessInput(0,pSrcSampleWrapped,NULL,timeStart,timeEnd);
 
-
-	int nResampledSamples = swr_convert(m_avrContext, &pRetBuffer, nDestSamples, ppSourceBuffer, nSourceSamples);
-	int nResampledBytes = nResampledSamples * m_pCurrentDestFormat->nChannels * bytesPerSampleDest;
-
-	//retSample->SetActualDataLength(nResampledBytes);
-	//int nRemainingSamplesInDelayBuffer=avresample_get_delay(m_avrContext);
-	//int nRemainingSamplesInFifoBuffer=avresample_available(m_avrContext);
-	//return SimpleSample::Create(pSrcSample,pRetBuffer, linesize);	
-	return retSample;
+	DWORD ouProcessStatus;
+	IMediaBufferEx *pDestMediaBuffer=NULL;
+	hr = CMediaBufferSampleWrapperWithConvertedData::Create(pSrcSample, destSize, &pDestMediaBuffer);
+	DMO_OUTPUT_DATA_BUFFER* outputBuffer=new DMO_OUTPUT_DATA_BUFFER();
+	outputBuffer->pBuffer=pDestMediaBuffer;
+	hr = m_pDMO->ProcessOutput(NULL,1,outputBuffer,&ouProcessStatus);
+	pSrcSampleWrapped->Release();
+	delete outputBuffer;
+	return pDestMediaBuffer;
 }
 
 HRESULT CResampler::InitContext()
 {
 	ReleaseContext();
-	m_avrContext = swr_alloc();
-
-	int sourceChannelLayout=ChannelLayoutFromWaveFormat(m_pCurrentSourceFormat);
-	int destChannelLayout=ChannelLayoutFromWaveFormat(m_pCurrentDestFormat);
-
-	AVSampleFormat sourceSampleFormat=SampleFormatFromWaveFormat(m_pCurrentSourceFormat);
-	AVSampleFormat destSampleFormat=SampleFormatFromWaveFormat(m_pCurrentDestFormat);
+    
 	
+	HRESULT hr = CoCreateInstance(CLSID_CResamplerMediaObject, NULL, CLSCTX_INPROC_SERVER, IID_IUnknown, (void**)&m_pTransform);
+	hr = m_pTransform->QueryInterface(IID_PPV_ARGS(&m_pDMO));
 
-	av_opt_set_int(m_avrContext, "in_channel_layout",  sourceChannelLayout, 0);
-	av_opt_set(m_avrContext,"resampler","soxr",0);
-	av_opt_set_int(m_avrContext, "in_channel_layout",  sourceChannelLayout, 0);
-	av_opt_set_int(m_avrContext, "out_channel_layout", destChannelLayout, 0);
-	av_opt_set_int(m_avrContext, "in_sample_rate", m_pCurrentSourceFormat->nSamplesPerSec, 0);
-	av_opt_set_int(m_avrContext, "out_sample_rate",  m_pCurrentDestFormat->nSamplesPerSec, 0);
-	av_opt_set_sample_fmt(m_avrContext, "in_sample_fmt", sourceSampleFormat, 0);
-	av_opt_set_sample_fmt(m_avrContext, "out_sample_fmt", destSampleFormat, 0);
-	int result = swr_init(m_avrContext);
+	DMO_MEDIA_TYPE mtSource;
+	ZeroMemory(&mtSource, sizeof(DMO_MEDIA_TYPE));
+	hr = MoInitMediaType(&mtSource, sizeof(WAVEFORMATEX) + m_pCurrentSourceFormat->cbSize);				// Allocate memory for the format block.
+    mtSource.majortype  = MEDIATYPE_Audio;
+    mtSource.subtype    = MEDIASUBTYPE_PCM;
+    mtSource.formattype = FORMAT_WaveFormatEx;
+	CopyMemory(mtSource.pbFormat,m_pCurrentSourceFormat,sizeof(WAVEFORMATEX) + m_pCurrentSourceFormat->cbSize);
+    hr = m_pDMO->SetInputType(0, &mtSource, 0);
+	hr = MoFreeMediaType(&mtSource);
+
+	DMO_MEDIA_TYPE mtDest;
+	ZeroMemory(&mtDest, sizeof(DMO_MEDIA_TYPE));
+	hr = MoInitMediaType(&mtDest, sizeof(WAVEFORMATEX) + m_pCurrentDestFormat->cbSize);				// Allocate memory for the format block.
+    mtDest.majortype  = MEDIATYPE_Audio;
+    mtDest.subtype    = MEDIASUBTYPE_PCM;
+    mtDest.formattype = FORMAT_WaveFormatEx;
+	CopyMemory(mtDest.pbFormat,m_pCurrentDestFormat,sizeof(WAVEFORMATEX) + m_pCurrentDestFormat->cbSize);
+	hr = m_pDMO->SetOutputType(0, &mtDest, 0);
+	hr = MoFreeMediaType(&mtDest);
+
 	return S_OK;
 }
 
 void CResampler::ReleaseContext()
 {
-	if(m_avrContext)
+	if(m_pTransform)
 	{
-		swr_free(&m_avrContext);
+		SafeRelease(&m_pTransform);
+		m_pTransform=NULL;
+	}
+
+	if(m_pDMO)
+	{
+		SafeRelease(&m_pDMO);
+		m_pDMO=NULL;
 	}
 }

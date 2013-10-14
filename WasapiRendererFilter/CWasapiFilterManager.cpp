@@ -268,7 +268,7 @@ HRESULT CWasapiFilterManager::SampleReceived(IMediaSample *pSample)
 		RefCountingWaveFormatEx* destRefType=(m_pCurrentMediaTypeResample == NULL ?  srcRefType : m_pCurrentMediaTypeResample);
 		destRefType->AddRef();
 
-		SimpleSample* pSimple = m_pResampler->CreateSample(pSample,srcRefType->GetFormat(),destRefType->GetFormat());
+		IMediaBufferEx* pSimple = m_pResampler->CreateSample(pSample,srcRefType->GetFormat(),destRefType->GetFormat());
 		srcRefType->Release();
 
 		m_pRenderer->AddSampleToQueue(pSimple,destRefType,m_IsExclusive);  //Renderer will release sample and mediaType after they are pulled/cleared from the queue.
