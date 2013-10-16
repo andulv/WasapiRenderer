@@ -23,6 +23,7 @@ CWASAPIRenderer::CWASAPIRenderer(LPCWSTR pDevID) :
 	InitializedMode(-1)
 {
 	IMMDeviceEnumerator *deviceEnumerator = NULL;
+	IPropertyStore *pDeviceProperties=NULL;
 	UINT deviceCount;
 
 	HRESULT hr=S_OK;
@@ -46,6 +47,26 @@ CWASAPIRenderer::CWASAPIRenderer(LPCWSTR pDevID) :
 	}
 
 	_Endpoint->AddRef();
+
+
+	hr = _Endpoint->OpenPropertyStore(STGM_READ,&pDeviceProperties);
+	if (FAILED(hr))
+	{
+		DebugPrintf(L"CWASAPIRenderer - Unable to open propertystore for device: %x\n", hr);
+		goto exit;
+	}
+
+	PROPVARIANT pv;
+	
+	hr = pDeviceProperties->GetValue(PKEY_AudioEngine_DeviceFormat, &pv);			//The format user has selected in controlpanel for use in share mode. http://msdn.microsoft.com/en-us/library/windows/desktop/dd316580(v=vs.85).aspx
+	if(hr==S_OK && pv.vt==VT_BLOB)
+	{
+		_pDeviceFormat=(WAVEFORMATEX *)new byte[pv.blob.cbSize];
+		CopyMemory(_pDeviceFormat, pv.blob.pBlobData,pv.blob.cbSize);
+	}
+	PropVariantClear(&pv);
+
+	SafeRelease(&pDeviceProperties);
 
     //  Create our shutdown and samples ready events- we want auto reset events that start in the not-signaled state.
     _ShutdownEvent = CreateEventEx(NULL, NULL, 0, EVENT_MODIFY_STATE | SYNCHRONIZE);
@@ -105,7 +126,12 @@ CWASAPIRenderer::~CWASAPIRenderer(void)
         CloseHandle(_ExitFeederLoopEvent);
         _ExitFeederLoopEvent = NULL;
     }
-
+	if(_pDeviceFormat)
+	{
+		delete(_pDeviceFormat);
+		_pDeviceFormat=NULL;
+	}
+	
     SafeRelease(&_Endpoint);
 }
 
@@ -128,7 +154,7 @@ exit:
 }
 
 //Returns true if format can be used in specified mode.
-//Returns a suggested alternative mode if format can not be used.
+//Returns a suggested alternative mode if format can not be used. The caller must release suggested format if it is set (non NULL).
 bool CWASAPIRenderer::CheckFormat(WAVEFORMATEX* requestedFormat, WAVEFORMATEX** ppSuggestedFormat, AUDCLNT_SHAREMODE shareMode)
 {
 	WAVEFORMATEX* pSuggestedFormat=NULL;
@@ -148,13 +174,66 @@ bool CWASAPIRenderer::CheckFormat(WAVEFORMATEX* requestedFormat, WAVEFORMATEX** 
 		goto exit;
 	}
 
-	if(!pSuggestedFormat) {
-		hr = audioClient->GetMixFormat(&pSuggestedFormat);
+	if(pSuggestedFormat)
+	{
+		goto exit;
 	}
 
+	//In exclusive mode the audioclient will not return a suggested format. But we know that device format ought to be supported.
+	//so we try modifying the requested format to be similar to the device format. If this fails, we just suggest the deviceformat.
+	WAVEFORMATEX* attemptFormat = (WAVEFORMATEX*)CoTaskMemAlloc(sizeof(WAVEFORMATEX) + requestedFormat->cbSize);
+	WAVEFORMATEX* attemptFormatSuggested = NULL;
+	CopyMemory(attemptFormat,requestedFormat,sizeof(WAVEFORMATEX) + requestedFormat->cbSize);
+
+	HRESULT hr2=AUDCLNT_E_UNSUPPORTED_FORMAT;
+	if(_pDeviceFormat->wBitsPerSample!=requestedFormat->wBitsPerSample)
+	{
+		attemptFormat->wBitsPerSample=_pDeviceFormat->wBitsPerSample;			//Try changing bits per sample (sample format) to the one used by the mixer
+		attemptFormat->nBlockAlign=_pDeviceFormat->nBlockAlign;					//Try changing bits per sample (sample format) to the one used by the mixer
+		attemptFormat->nAvgBytesPerSec = _pDeviceFormat->nAvgBytesPerSec;
+		hr = audioClient->IsFormatSupported(shareMode,attemptFormat, NULL);
+		if(attemptFormatSuggested) 
+		{
+			CoTaskMemFree(attemptFormatSuggested);
+		}
+
+		if (hr == S_OK) 
+		{
+			pSuggestedFormat=attemptFormat;
+			goto exit;
+		}
+	}
+	if(_pDeviceFormat->nChannels != requestedFormat->nChannels) 
+	{
+		attemptFormat->nChannels=_pDeviceFormat->nChannels;
+		hr = audioClient->IsFormatSupported(shareMode,attemptFormat, &attemptFormatSuggested);
+		if(attemptFormatSuggested) 
+		{
+			CoTaskMemFree(attemptFormatSuggested);
+		}
+
+		if (hr == S_OK) 
+		{
+			pSuggestedFormat=attemptFormat;
+			goto exit;
+		}
+	}
+		
+	CoTaskMemFree(attemptFormat);
+	attemptFormat = (WAVEFORMATEX*)CoTaskMemAlloc(sizeof(WAVEFORMATEX) + _pDeviceFormat->cbSize);
+	CopyMemory(attemptFormat,_pDeviceFormat,sizeof(WAVEFORMATEX) + _pDeviceFormat->cbSize);
+	pSuggestedFormat=attemptFormat;
+	
 exit:
-	*ppSuggestedFormat=pSuggestedFormat;
 	SafeRelease(&audioClient);
+	if(ppSuggestedFormat && !retValue)		//If caller has specified pointer to suggestedformat AND requested format is not supported, we will return the suggested format.
+	{
+		*ppSuggestedFormat=pSuggestedFormat;
+	}
+	else if (pSuggestedFormat) 
+	{
+		CoTaskMemFree(pSuggestedFormat);
+	}
 	return retValue;
 }
 

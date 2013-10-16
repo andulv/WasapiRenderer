@@ -141,6 +141,8 @@ private:
     IAudioClient		*_AudioClient;
     IAudioRenderClient	*_RenderClient;
 
+	WAVEFORMATEX		*_pDeviceFormat;
+
 	//Sets the event if we have samples (_RenderBufferQueue!=null && m_bIsProcessing)
 	void				UpdateProcessSamplesInQueueEvent();
 

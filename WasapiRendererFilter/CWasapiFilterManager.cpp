@@ -21,8 +21,7 @@ CWasapiFilterManager::CWasapiFilterManager(LPUNKNOWN pUnk, HRESULT *phr) :
 	m_pRenderer(NULL),
 	m_pCurrentMediaTypeReceive(NULL),
 	m_pCurrentMediaTypeResample(NULL),
-	//m_pCurrentMediaTypeResample(NULL),
-	m_IsExclusive(false),
+	m_IsExclusive(true),
 	m_pResampler(new CResampler()),
 	m_currentMediaTypeSampleReceivedAction(ReceivedSampleActions_RejectLoud)
 {

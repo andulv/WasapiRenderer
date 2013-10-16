@@ -110,6 +110,8 @@ IMediaBufferEx* CResampler::CreateSample(IMediaSample* pSrcSample, WAVEFORMATEX*
 	return pDestMediaBuffer;
 }
 
+
+//Initializes the resampler DMO based on m_pCurrentSourceFormat and m_pCurrentDestFormat
 HRESULT CResampler::InitContext()
 {
 	ReleaseContext();
