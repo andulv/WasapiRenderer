@@ -1,10 +1,3 @@
-// THIS CODE AND INFORMATION IS PROVIDED "AS IS" WITHOUT WARRANTY OF
-// ANY KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING BUT NOT LIMITED TO
-// THE IMPLIED WARRANTIES OF MERCHANTABILITY AND/OR FITNESS FOR A
-// PARTICULAR PURPOSE.
-//
-// Copyright (c) Microsoft Corporation. All rights reserved
-//
 #pragma once
 #include <MMDeviceAPI.h>
 #include <AudioClient.h>
@@ -124,7 +117,12 @@ public:
     ~CWASAPIRenderer(void);
 
 	WAVEFORMATEX* GetWasapiMixFormat();
+
+	//BEGIN: AudioDevice
 	bool CheckFormat(WAVEFORMATEX* requestedFormat, WAVEFORMATEX** suggestedFormat, AUDCLNT_SHAREMODE shareMode);
+	bool CheckFormatExclusive(IAudioClient* audioClient, WAVEFORMATEX* requestedFormat, WAVEFORMATEX** ppSuggestedFormat);
+	//END: AudioDevice
+
     bool Start(UINT32 EngineLatency);
     void Stop();
 	void SetIsProcessing(bool isOK);
@@ -141,7 +139,9 @@ private:
     IAudioClient		*_AudioClient;
     IAudioRenderClient	*_RenderClient;
 
+	//BEGIN: AudioDevice
 	WAVEFORMATEX		*_pDeviceFormat;
+	//END: AudioDevice
 
 	//Sets the event if we have samples (_RenderBufferQueue!=null && m_bIsProcessing)
 	void				UpdateProcessSamplesInQueueEvent();

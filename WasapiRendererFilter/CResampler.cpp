@@ -6,15 +6,8 @@
 #include "CResampler.h"
 #include <wmcodecdsp.h>
 #include <dmo.h>
+#include "FormatUtils.h"
 
-//#include <streams.h>
-//#include "WasapiRendererFilteruids.h"
-//#include "CWasapiInputPin.h"
-//#include "WasapiRendererFilter.h"
-//#include "WASAPIRenderer.h"
-//#include "WasapiHelper.h"
-//#include "stdafx.h"
-//#include "CWasapiFilterManager.h"
 
 CResampler::CResampler()
 	: m_pTransform(NULL),
@@ -54,11 +47,24 @@ bool SampleFormatEquals(WAVEFORMATEX* pformat1, WAVEFORMATEX* pformat2)
 		pformat1->wBitsPerSample==pformat2->wBitsPerSample;		   
 }
 
+bool IsMixingRequired(WAVEFORMATEX* pSourceFormat, WAVEFORMATEX* pDestFormat)
+{
+	if(pDestFormat==NULL)
+		return false;
+
+	return	
+		pSourceFormat->nChannels!=pDestFormat->nChannels ||
+		pSourceFormat->nSamplesPerSec!=pDestFormat->nSamplesPerSec ||
+		pSourceFormat->wBitsPerSample!=pDestFormat->wBitsPerSample;		   
+}
+
 IMediaBufferEx* CResampler::CreateSample(IMediaSample* pSrcSample, WAVEFORMATEX* pSourceFormat, WAVEFORMATEX* pDestFormat)
 {
+	ASSERT(pSrcSample!=NULL);
+	ASSERT(pSourceFormat!=NULL);
 	CMediaBufferSampleWrapper* pSrcSampleWrapped=new CMediaBufferSampleWrapper(pSrcSample);
 
-	if(pDestFormat== NULL || SampleFormatEquals(pSourceFormat,pDestFormat))
+	if(!IsMixingRequired(pSourceFormat,pDestFormat))
 	{
 		return pSrcSampleWrapped;			//No conversion needed. Received sample can be played back directly.
 	}
@@ -111,34 +117,47 @@ IMediaBufferEx* CResampler::CreateSample(IMediaSample* pSrcSample, WAVEFORMATEX*
 }
 
 
+DMO_MEDIA_TYPE* MediaTypeFromFormat(WAVEFORMATEX* pSrcFormat)
+{
+	DMO_MEDIA_TYPE* retValue = new DMO_MEDIA_TYPE();
+	ZeroMemory(retValue, sizeof(DMO_MEDIA_TYPE));
+	HRESULT hr = MoInitMediaType(retValue, sizeof(WAVEFORMATEX) + pSrcFormat->cbSize);				// Allocate memory for the format block.
+    retValue->majortype  = MEDIATYPE_Audio;
+    retValue->subtype    = MEDIASUBTYPE_PCM;
+    retValue->formattype = FORMAT_WaveFormatEx;
+	CopyMemory(retValue->pbFormat,pSrcFormat,sizeof(WAVEFORMATEX) + pSrcFormat->cbSize);
+	return retValue;
+}
+
+
 //Initializes the resampler DMO based on m_pCurrentSourceFormat and m_pCurrentDestFormat
 HRESULT CResampler::InitContext()
 {
-	ReleaseContext();
-    
+	ReleaseContext();  
 	
 	HRESULT hr = CoCreateInstance(CLSID_CResamplerMediaObject, NULL, CLSCTX_INPROC_SERVER, IID_IUnknown, (void**)&m_pTransform);
 	hr = m_pTransform->QueryInterface(IID_PPV_ARGS(&m_pDMO));
 
-	DMO_MEDIA_TYPE mtSource;
-	ZeroMemory(&mtSource, sizeof(DMO_MEDIA_TYPE));
-	hr = MoInitMediaType(&mtSource, sizeof(WAVEFORMATEX) + m_pCurrentSourceFormat->cbSize);				// Allocate memory for the format block.
-    mtSource.majortype  = MEDIATYPE_Audio;
-    mtSource.subtype    = MEDIASUBTYPE_PCM;
-    mtSource.formattype = FORMAT_WaveFormatEx;
-	CopyMemory(mtSource.pbFormat,m_pCurrentSourceFormat,sizeof(WAVEFORMATEX) + m_pCurrentSourceFormat->cbSize);
-    hr = m_pDMO->SetInputType(0, &mtSource, 0);
-	hr = MoFreeMediaType(&mtSource);
+	IWMResamplerProps* pResamplerProps=NULL;
+	hr= m_pTransform->QueryInterface(IID_PPV_ARGS(&pResamplerProps));
 
-	DMO_MEDIA_TYPE mtDest;
-	ZeroMemory(&mtDest, sizeof(DMO_MEDIA_TYPE));
-	hr = MoInitMediaType(&mtDest, sizeof(WAVEFORMATEX) + m_pCurrentDestFormat->cbSize);				// Allocate memory for the format block.
-    mtDest.majortype  = MEDIATYPE_Audio;
-    mtDest.subtype    = MEDIASUBTYPE_PCM;
-    mtDest.formattype = FORMAT_WaveFormatEx;
-	CopyMemory(mtDest.pbFormat,m_pCurrentDestFormat,sizeof(WAVEFORMATEX) + m_pCurrentDestFormat->cbSize);
-	hr = m_pDMO->SetOutputType(0, &mtDest, 0);
-	hr = MoFreeMediaType(&mtDest);
+	if(hr==S_OK)
+	{
+		pResamplerProps->SetHalfFilterLength(60);
+		pResamplerProps->Release();
+	}
+
+	//MFPKEY_WMRESAMP_CHANNELMTX		= SetUserChannelMtx
+	//MFPKEY_WMRESAMP_LOWPASS_BANDWIDTH
+
+	DMO_MEDIA_TYPE* mtSource = MediaTypeFromFormat(m_pCurrentSourceFormat);
+    hr = m_pDMO->SetInputType(0, mtSource, 0);
+
+	DMO_MEDIA_TYPE* mtDest = MediaTypeFromFormat(m_pCurrentDestFormat);
+	hr = m_pDMO->SetOutputType(0, mtDest, 0);
+
+	hr = MoFreeMediaType(mtSource);
+	hr = MoFreeMediaType(mtDest);
 
 	return S_OK;
 }
@@ -157,3 +176,8 @@ void CResampler::ReleaseContext()
 		m_pDMO=NULL;
 	}
 }
+
+
+
+
+

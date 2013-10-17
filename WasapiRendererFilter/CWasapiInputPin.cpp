@@ -119,11 +119,20 @@ STDMETHODIMP CWasapiInputPin::Receive(IMediaSample *pSample)
 	CAutoLock lock(m_pReceiveLock);
     CheckPointer(pSample,E_POINTER);
 	bool mediaTypeFailed=false;
+
     HRESULT hr = CBaseInputPin::Receive(pSample);
 	if(hr!=S_OK)
 	{
 		DebugPrintf(L"CWasapiInputPin::Receive CBaseInputPin returned error. %d \n",hr);
 		goto exit;
+	}
+
+	CMediaType* mediaType=NULL;
+	hr=pSample->GetMediaType((AM_MEDIA_TYPE**)&mediaType);
+	if(hr==S_OK)
+	{
+		hr = CBasePin::SetMediaType(mediaType);
+		DeleteMediaType(mediaType);
 	}
 
 	hr= m_pManager->SampleReceived(pSample);

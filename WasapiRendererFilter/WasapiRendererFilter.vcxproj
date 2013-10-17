@@ -135,6 +135,8 @@
     <ClCompile Include="CWasapiFilter.cpp" />
     <ClCompile Include="CWasapiFilterManager.cpp" />
     <ClCompile Include="CWasapiInputPin.cpp" />
+    <ClCompile Include="FormatUtils.cpp" />
+    <ClCompile Include="PropertyPages.cpp" />
     <ClCompile Include="WasapiHelper.cpp" />
     <ClCompile Include="WASAPIRenderer.cpp" />
     <ClCompile Include="WasapiRendererFilter.cpp" />
@@ -143,10 +145,15 @@
     <None Include="WasapiRendererFilter.def" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="afxres.h" />
     <ClInclude Include="CResampler.h" />
     <ClInclude Include="CWasapiFilter.h" />
     <ClInclude Include="CWasapiFilterManager.h" />
     <ClInclude Include="CWasapiInputPin.h" />
+    <ClInclude Include="FormatUtils.h" />
+    <ClInclude Include="PropertyPages.h" />
+    <ClInclude Include="resource.h" />
+    <ClInclude Include="resource1.h" />
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="WasapiHelper.h" />
     <ClInclude Include="WASAPIRenderer.h" />

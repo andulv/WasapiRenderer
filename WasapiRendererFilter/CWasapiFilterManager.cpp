@@ -122,6 +122,24 @@ HRESULT CWasapiFilterManager::GetWasapiMixFormat(WAVEFORMATEX** ppFormat)
 	return S_OK;
 }
 
+HRESULT CWasapiFilterManager::GetCurrentInputFormat(RefCountingWaveFormatEx** ppFormat)
+{
+	CAutoLock lock(&m_MediaTypeLock);
+	if(m_pCurrentMediaTypeReceive)
+		m_pCurrentMediaTypeReceive->AddRef();
+	*ppFormat=m_pCurrentMediaTypeReceive;
+	return S_OK;
+}
+
+HRESULT CWasapiFilterManager::GetCurrentResampledFormat(RefCountingWaveFormatEx** ppFormat)
+{
+	CAutoLock lock(&m_MediaTypeLock);
+	if(m_pCurrentMediaTypeResample)
+		m_pCurrentMediaTypeResample->AddRef();
+	*ppFormat=m_pCurrentMediaTypeResample;
+	return S_OK;
+}
+
 HRESULT CWasapiFilterManager::GetExclusiveMode(bool* pIsExclusive)
 {
 	HRESULT hr=S_OK;
@@ -132,9 +150,13 @@ HRESULT CWasapiFilterManager::GetExclusiveMode(bool* pIsExclusive)
 
 HRESULT CWasapiFilterManager::SetExclusiveMode(bool pIsExclusive)
 {
-	HRESULT hr=S_OK;
-	m_IsExclusive=pIsExclusive;
-	ConfigureFormat();
+	HRESULT hr=S_FALSE;
+
+	if(m_IsExclusive!=pIsExclusive)
+	{
+		m_IsExclusive=pIsExclusive;	
+		return ConfigureFormat();
+	}
 	return hr;
 }
 
@@ -353,8 +375,11 @@ STDMETHODIMP CWasapiFilterManager::NonDelegatingQueryInterface(REFIID riid, void
 	{
         return GetInterface((IRendererFilterWasapi *) this, ppv);
     } 
-    else 
-	if (riid == IID_IBaseFilter || riid == IID_IMediaFilter || riid == IID_IPersist) 
+ if (riid == IID_ISpecifyPropertyPages)
+    {
+        return GetInterface(static_cast<ISpecifyPropertyPages*>(this), ppv);
+    }
+    else if (riid == IID_IBaseFilter || riid == IID_IMediaFilter || riid == IID_IPersist) 
 	{
 		return ((CBaseFilter*)m_pFilter)->NonDelegatingQueryInterface(riid, ppv);
     } 

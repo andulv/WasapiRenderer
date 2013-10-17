@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <avrt.h>
 #include "WASAPIRenderer.h"
+#include "FormatUtils.h"
 #define AUDCLNT_E_BUFFER_SIZE_NOT_ALIGNED AUDCLNT_ERR(0x019)
 
 CWASAPIRenderer::CWASAPIRenderer(LPCWSTR pDevID) : 
@@ -153,11 +154,155 @@ exit:
 	return retValue;
 }
 
+
+
+
+
+
+//IsFormatSupported in shared mode queries the mixer. The mixer understands both WaveFormatEx and WaveFormatExtensible.
+bool CheckFormatShared(IAudioClient* audioClient, WAVEFORMATEX* requestedFormat, WAVEFORMATEX** ppSuggestedFormat)
+{
+    HRESULT hr = audioClient->IsFormatSupported(AUDCLNT_SHAREMODE_SHARED,requestedFormat, ppSuggestedFormat);
+    if (hr == S_OK)
+    {
+		return true;
+	}
+	return false;
+}
+
+//IsFormatSupported in exclusive mode queries the audio driver. Exact implementation may vary between drivers.
+//Some prefer WaveFormatEx, some prefer WaveFormatExtensible.
+bool CWASAPIRenderer::CheckFormatExclusive(IAudioClient* audioClient, WAVEFORMATEX* requestedFormat, WAVEFORMATEX** ppSuggestedFormat)
+{
+	WAVEFORMATEX* pSuggested=NULL;
+
+	HRESULT hr = audioClient->IsFormatSupported(AUDCLNT_SHAREMODE_EXCLUSIVE,requestedFormat, NULL);
+    if (hr == S_OK)
+    {
+		return true;
+	}
+
+	bool retValue=false;
+
+	int sizeRequestFormat=sizeof(WAVEFORMATEX) + requestedFormat->cbSize;
+	WAVEFORMATEX* formatEx = NULL;
+	WAVEFORMATEXTENSIBLE* formatExtensible = NULL;
+
+	if(requestedFormat->wFormatTag==WAVE_FORMAT_EXTENSIBLE)
+	{
+		formatExtensible = (WAVEFORMATEXTENSIBLE*)CoTaskMemAlloc(sizeRequestFormat);
+		CopyMemory(formatExtensible, requestedFormat, sizeRequestFormat);
+		formatEx = (WAVEFORMATEX*) CoTaskMemAlloc(sizeof(WAVEFORMATEX));;
+		ZeroMemory(formatEx,sizeof(WAVEFORMATEX));
+		CFormatUtils::ToEx(formatExtensible,formatEx);
+	}
+	else
+	{
+		formatEx = (WAVEFORMATEX*) CoTaskMemAlloc(sizeRequestFormat);;
+		CopyMemory(formatEx, requestedFormat, sizeRequestFormat);
+		formatExtensible = (WAVEFORMATEXTENSIBLE*)CoTaskMemAlloc(sizeof(WAVEFORMATEXTENSIBLE));
+		ZeroMemory(formatExtensible,sizeof(WAVEFORMATEXTENSIBLE));
+		CFormatUtils::ToExtensible(formatEx,formatExtensible);
+	}
+
+
+    hr = audioClient->IsFormatSupported(AUDCLNT_SHAREMODE_EXCLUSIVE,&formatExtensible->Format, NULL);
+    if (hr == S_OK)
+    {
+		pSuggested = &formatExtensible->Format;
+		goto exit;
+	}
+
+	hr = audioClient->IsFormatSupported(AUDCLNT_SHAREMODE_EXCLUSIVE,formatEx, NULL);
+    if (hr == S_OK)
+    {
+		pSuggested = formatEx;
+		goto exit;
+	}
+
+	//Adjust sampleformat (bitspersample) to same as deviceformat and check format again
+	formatEx->wBitsPerSample=_pDeviceFormat->wBitsPerSample;
+	CFormatUtils::SetCalculatedProperties(formatEx);
+	formatExtensible->Format.wBitsPerSample=_pDeviceFormat->wBitsPerSample;
+	if(_pDeviceFormat->wFormatTag==WAVE_FORMAT_EXTENSIBLE)
+	{
+		formatExtensible->Samples.wValidBitsPerSample = ((WAVEFORMATEXTENSIBLE*)_pDeviceFormat)->Samples.wValidBitsPerSample;
+		formatExtensible->SubFormat=((WAVEFORMATEXTENSIBLE*)_pDeviceFormat)->SubFormat;
+		formatEx->wFormatTag = CFormatUtils::SubFormatToFormatTag(((WAVEFORMATEXTENSIBLE*)_pDeviceFormat)->SubFormat);
+	}
+	else
+	{
+		formatExtensible->Samples.wValidBitsPerSample=_pDeviceFormat->wBitsPerSample;
+		formatExtensible->SubFormat=CFormatUtils::FormatTagToSubFormat(_pDeviceFormat->wFormatTag);
+		formatEx->wFormatTag=_pDeviceFormat->wFormatTag;
+	}
+	CFormatUtils::SetCalculatedProperties(&formatExtensible->Format);
+
+	hr = audioClient->IsFormatSupported(AUDCLNT_SHAREMODE_EXCLUSIVE,&formatExtensible->Format, NULL);
+    if (hr == S_OK)
+    {
+		pSuggested = &formatExtensible->Format;
+		goto exit;
+	}
+
+	hr = audioClient->IsFormatSupported(AUDCLNT_SHAREMODE_EXCLUSIVE,formatEx, NULL);
+    if (hr == S_OK)
+    {
+		pSuggested = formatEx;
+		goto exit;
+	}
+
+	//Adjust number of channels to same as deviceformat and check format again
+	formatEx->nChannels=_pDeviceFormat->nChannels;
+	CFormatUtils::SetCalculatedProperties(formatEx);
+
+	formatExtensible->Format.nChannels=_pDeviceFormat->nChannels;
+	if(_pDeviceFormat->wFormatTag==WAVE_FORMAT_EXTENSIBLE)
+	{
+		formatExtensible->dwChannelMask = ((WAVEFORMATEXTENSIBLE*)_pDeviceFormat)->dwChannelMask;
+	}
+	else
+	{
+		formatExtensible->dwChannelMask = CFormatUtils::GetChannelMask(_pDeviceFormat->nChannels);
+	}
+	CFormatUtils::SetCalculatedProperties(&formatExtensible->Format);
+
+
+	hr = audioClient->IsFormatSupported(AUDCLNT_SHAREMODE_EXCLUSIVE,&formatExtensible->Format, NULL);
+    if (hr == S_OK)
+    {
+		pSuggested = &formatExtensible->Format;
+		goto exit;
+	}
+
+	hr = audioClient->IsFormatSupported(AUDCLNT_SHAREMODE_EXCLUSIVE,formatEx, NULL);
+    if (hr == S_OK)
+    {
+		pSuggested = formatEx;
+		goto exit;
+	}
+
+	pSuggested = (WAVEFORMATEX*)CoTaskMemAlloc(sizeof(WAVEFORMATEX) + _pDeviceFormat->cbSize);
+	CopyMemory(pSuggested , _pDeviceFormat, sizeof(WAVEFORMATEX) + _pDeviceFormat->cbSize);
+exit:
+	if(formatEx!=pSuggested)
+		CoTaskMemFree(formatEx);
+	if(&formatExtensible->Format!=pSuggested)
+		CoTaskMemFree(formatExtensible);
+
+	if(pSuggested && !ppSuggestedFormat)
+		CoTaskMemFree(formatExtensible);
+
+	if(ppSuggestedFormat)
+		*ppSuggestedFormat=pSuggested;
+
+	return retValue;
+}
+
 //Returns true if format can be used in specified mode.
-//Returns a suggested alternative mode if format can not be used. The caller must release suggested format if it is set (non NULL).
+//Returns a suggested alternative format if requested format can not be used. The caller must release suggested format if it is set (non NULL).
 bool CWASAPIRenderer::CheckFormat(WAVEFORMATEX* requestedFormat, WAVEFORMATEX** ppSuggestedFormat, AUDCLNT_SHAREMODE shareMode)
 {
-	WAVEFORMATEX* pSuggestedFormat=NULL;
 	IAudioClient* audioClient;
 	bool retValue=false;
     HRESULT hr = _Endpoint->Activate(__uuidof(IAudioClient), CLSCTX_INPROC_SERVER, NULL, reinterpret_cast<void **>(&audioClient));
@@ -167,73 +312,16 @@ bool CWASAPIRenderer::CheckFormat(WAVEFORMATEX* requestedFormat, WAVEFORMATEX** 
 		return false;
     }
 
-    hr = audioClient->IsFormatSupported(shareMode,requestedFormat, &pSuggestedFormat);
-    if (hr == S_OK)
-    {
-		retValue=true;
-		goto exit;
-	}
-
-	if(pSuggestedFormat)
+	if(shareMode==AUDCLNT_SHAREMODE_SHARED)
 	{
-		goto exit;
+		retValue=CheckFormatShared(audioClient,requestedFormat,ppSuggestedFormat);
 	}
-
-	//In exclusive mode the audioclient will not return a suggested format. But we know that device format ought to be supported.
-	//so we try modifying the requested format to be similar to the device format. If this fails, we just suggest the deviceformat.
-	WAVEFORMATEX* attemptFormat = (WAVEFORMATEX*)CoTaskMemAlloc(sizeof(WAVEFORMATEX) + requestedFormat->cbSize);
-	WAVEFORMATEX* attemptFormatSuggested = NULL;
-	CopyMemory(attemptFormat,requestedFormat,sizeof(WAVEFORMATEX) + requestedFormat->cbSize);
-
-	HRESULT hr2=AUDCLNT_E_UNSUPPORTED_FORMAT;
-	if(_pDeviceFormat->wBitsPerSample!=requestedFormat->wBitsPerSample)
+	else
 	{
-		attemptFormat->wBitsPerSample=_pDeviceFormat->wBitsPerSample;			//Try changing bits per sample (sample format) to the one used by the mixer
-		attemptFormat->nBlockAlign=_pDeviceFormat->nBlockAlign;					//Try changing bits per sample (sample format) to the one used by the mixer
-		attemptFormat->nAvgBytesPerSec = _pDeviceFormat->nAvgBytesPerSec;
-		hr = audioClient->IsFormatSupported(shareMode,attemptFormat, NULL);
-		if(attemptFormatSuggested) 
-		{
-			CoTaskMemFree(attemptFormatSuggested);
-		}
-
-		if (hr == S_OK) 
-		{
-			pSuggestedFormat=attemptFormat;
-			goto exit;
-		}
+		retValue=CheckFormatExclusive(audioClient,requestedFormat,ppSuggestedFormat);
 	}
-	if(_pDeviceFormat->nChannels != requestedFormat->nChannels) 
-	{
-		attemptFormat->nChannels=_pDeviceFormat->nChannels;
-		hr = audioClient->IsFormatSupported(shareMode,attemptFormat, &attemptFormatSuggested);
-		if(attemptFormatSuggested) 
-		{
-			CoTaskMemFree(attemptFormatSuggested);
-		}
-
-		if (hr == S_OK) 
-		{
-			pSuggestedFormat=attemptFormat;
-			goto exit;
-		}
-	}
-		
-	CoTaskMemFree(attemptFormat);
-	attemptFormat = (WAVEFORMATEX*)CoTaskMemAlloc(sizeof(WAVEFORMATEX) + _pDeviceFormat->cbSize);
-	CopyMemory(attemptFormat,_pDeviceFormat,sizeof(WAVEFORMATEX) + _pDeviceFormat->cbSize);
-	pSuggestedFormat=attemptFormat;
 	
-exit:
 	SafeRelease(&audioClient);
-	if(ppSuggestedFormat && !retValue)		//If caller has specified pointer to suggestedformat AND requested format is not supported, we will return the suggested format.
-	{
-		*ppSuggestedFormat=pSuggestedFormat;
-	}
-	else if (pSuggestedFormat) 
-	{
-		CoTaskMemFree(pSuggestedFormat);
-	}
 	return retValue;
 }
 

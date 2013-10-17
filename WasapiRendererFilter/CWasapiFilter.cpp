@@ -8,6 +8,7 @@
 #include "WasapiHelper.h"
 #include "stdafx.h"
 #include "CWasapiFilterManager.h"
+#include "PropertyPages.h"
 
 // Setup data
 
@@ -43,10 +44,12 @@ const AMOVIESETUP_FILTER sudDump =
 //
 //  Object creation stuff
 //
-CFactoryTemplate g_Templates[]= {
-    L"WasapiRendererFilter", &CLSID_WasapiRendererFilter, CWasapiFilterManager::CreateInstance, NULL, &sudDump
+CFactoryTemplate g_Templates[]= 
+{
+	{ L"WasapiRendererFilter", &CLSID_WasapiRendererFilter, CWasapiFilterManager::CreateInstance, NULL, &sudDump },
+	{ L"Saturation Props", &CLSID_WasapiProp, CGrayProp::CreateInstance, NULL, NULL }
 };
-int g_cTemplates = 1;
+int g_cTemplates =sizeof(g_Templates)/sizeof(g_Templates[0]);
 
 
 // Constructor

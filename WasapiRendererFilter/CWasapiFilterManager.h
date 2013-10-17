@@ -11,7 +11,9 @@ class CResampler;
     };
 
 
-class CWasapiFilterManager : public IRendererFilterWasapi, public CBaseReferenceClock
+class CWasapiFilterManager : public IRendererFilterWasapi, 
+							 public ISpecifyPropertyPages,
+							 public CBaseReferenceClock
 {
     friend class CWasapiFilter;
     friend class CWasapiInputPin;
@@ -36,6 +38,19 @@ class CWasapiFilterManager : public IRendererFilterWasapi, public CBaseReference
 	bool					m_IsExclusive;
 
 public:
+	STDMETHODIMP GetPages(CAUUID *pPages)
+    {
+        if (pPages == NULL) return E_POINTER;
+        pPages->cElems = 1;
+        pPages->pElems = (GUID*)CoTaskMemAlloc(sizeof(GUID));
+        if (pPages->pElems == NULL) 
+        {
+            return E_OUTOFMEMORY;
+        }
+        pPages->pElems[0] = CLSID_WasapiProp;
+        return S_OK;
+    }
+
     STDMETHODIMP QueryInterface(REFIID riid, __deref_out void **ppv) { 
         return GetOwner()->QueryInterface(riid,ppv);            
     };                                                          
@@ -61,6 +76,9 @@ public:
 	STDMETHOD(SetExclusiveMode)(bool pIsExclusive);
 	STDMETHOD(GetActiveMode)(int* pMode);
 	STDMETHOD(SetDevice)(LPCWSTR pDevID);
+
+	STDMETHOD(GetCurrentInputFormat)(RefCountingWaveFormatEx** ppFormat);
+	STDMETHOD(GetCurrentResampledFormat)(RefCountingWaveFormatEx** ppFormat);
 
 private:
 	HRESULT ConfigureFormat();
