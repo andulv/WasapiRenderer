@@ -47,7 +47,7 @@ const AMOVIESETUP_FILTER sudDump =
 CFactoryTemplate g_Templates[]= 
 {
 	{ L"WasapiRendererFilter", &CLSID_WasapiRendererFilter, CWasapiFilterManager::CreateInstance, NULL, &sudDump },
-	{ L"Saturation Props", &CLSID_WasapiProp, CGrayProp::CreateInstance, NULL, NULL }
+	{ L"Saturation Props", &CLSID_WasapiProp, CWasapiFilterProperties::CreateInstance, NULL, NULL }
 };
 int g_cTemplates =sizeof(g_Templates)/sizeof(g_Templates[0]);
 

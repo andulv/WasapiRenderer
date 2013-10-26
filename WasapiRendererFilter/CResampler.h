@@ -1,8 +1,4 @@
 
-
-
-
-
 class CResampler
 {
 public:

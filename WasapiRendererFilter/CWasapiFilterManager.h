@@ -76,9 +76,11 @@ public:
 	STDMETHOD(SetExclusiveMode)(bool pIsExclusive);
 	STDMETHOD(GetActiveMode)(int* pMode);
 	STDMETHOD(SetDevice)(LPCWSTR pDevID);
+	STDMETHOD(GetDevice)(LPWSTR* ppDevID);
 
 	STDMETHOD(GetCurrentInputFormat)(RefCountingWaveFormatEx** ppFormat);
 	STDMETHOD(GetCurrentResampledFormat)(RefCountingWaveFormatEx** ppFormat);
+	STDMETHOD(GetDeviceInfos)(bool includeDisconnected, WasapiDeviceInfo** ppDestInfos, int* pInfoCount, int* pIndexDefault);
 
 private:
 	HRESULT ConfigureFormat();

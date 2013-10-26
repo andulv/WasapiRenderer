@@ -59,7 +59,7 @@ CWASAPIRenderer::CWASAPIRenderer(LPCWSTR pDevID) :
 
 	PROPVARIANT pv;
 	
-	hr = pDeviceProperties->GetValue(PKEY_AudioEngine_DeviceFormat, &pv);			//The format user has selected in controlpanel for use in share mode. http://msdn.microsoft.com/en-us/library/windows/desktop/dd316580(v=vs.85).aspx
+	hr = pDeviceProperties->GetValue(PKEY_AudioEngine_DeviceFormat, &pv);			//The driver specified default format for the device
 	if(hr==S_OK && pv.vt==VT_BLOB)
 	{
 		_pDeviceFormat=(WAVEFORMATEX *)new byte[pv.blob.cbSize];
@@ -155,6 +155,14 @@ exit:
 }
 
 
+HRESULT CWASAPIRenderer::GetDeviceId(LPWSTR *ppstrId)
+{
+	if(!_Endpoint) {
+		*ppstrId=NULL;
+		return S_FALSE;
+	}
+	return _Endpoint->GetId(ppstrId);
+}
 
 
 

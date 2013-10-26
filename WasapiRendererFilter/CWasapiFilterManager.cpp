@@ -9,6 +9,7 @@
 #include "stdafx.h"
 #include "CWasapiFilterManager.h"
 #include "CResampler.h"
+#include "CWasapiUtils.h"
 
 //
 //  CWasapiFilterManager class
@@ -110,8 +111,21 @@ bool CWasapiFilterManager::StopRendering(bool clearQueue)
 HRESULT CWasapiFilterManager::SetDevice(LPCWSTR pDevID)
 {
 	//Destroy Renderer and create new one.
+	if(m_pRenderer)
+		delete m_pRenderer;
+	m_pRenderer=new CWASAPIRenderer(pDevID);
 	HRESULT hr=S_OK;
 	return hr;
+}
+
+HRESULT CWasapiFilterManager::GetDevice(LPWSTR* ppDevID)
+{
+	//Destroy Renderer and create new one.
+	if(!m_pRenderer) {
+		*ppDevID=NULL;
+		return S_FALSE;
+	}
+	return m_pRenderer->GetDeviceId((LPWSTR*)ppDevID);
 }
 
 HRESULT CWasapiFilterManager::GetWasapiMixFormat(WAVEFORMATEX** ppFormat)
@@ -138,6 +152,11 @@ HRESULT CWasapiFilterManager::GetCurrentResampledFormat(RefCountingWaveFormatEx*
 		m_pCurrentMediaTypeResample->AddRef();
 	*ppFormat=m_pCurrentMediaTypeResample;
 	return S_OK;
+}
+
+HRESULT CWasapiFilterManager::GetDeviceInfos(bool includeDisconnected, WasapiDeviceInfo** ppDestInfos, int* pInfoCount, int* pIndexDefault)
+{
+	return CWasapiUtils::GetDeviceInfos(includeDisconnected, ppDestInfos, pInfoCount, pIndexDefault);
 }
 
 HRESULT CWasapiFilterManager::GetExclusiveMode(bool* pIsExclusive)

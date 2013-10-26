@@ -13,16 +13,20 @@
 #include "resource1.h"
 #include <Commctrl.h>
 #include <wchar.h>
+#include "utility.h"
+#include "CWasapiUtils.h"
+
 #pragma comment( lib, "comctl32.lib" )
 
 
-CGrayProp::CGrayProp(IUnknown *pUnk) : 
+CWasapiFilterProperties::CWasapiFilterProperties(IUnknown *pUnk) : 
   CBasePropertyPage(NAME("GrayProp"), pUnk, IDD_PROPERTYPAGE1, IDS_PROPERTYPAGE1_TITLE),
-  m_pWasapiFilter(0)
+  m_pWasapiFilter(NULL),
+  m_pDeviceInfos(NULL)
 { 
 }
 
-HRESULT CGrayProp::OnConnect(IUnknown *pUnk)
+HRESULT CWasapiFilterProperties::OnConnect(IUnknown *pUnk)
 {
 	if (pUnk == NULL)
     {
@@ -32,17 +36,22 @@ HRESULT CGrayProp::OnConnect(IUnknown *pUnk)
     return pUnk->QueryInterface(__uuidof(IRendererFilterWasapi), reinterpret_cast<void**>(&m_pWasapiFilter));
 }
 
-HRESULT CGrayProp::OnDisconnect(void)
+HRESULT CWasapiFilterProperties::OnDisconnect(void)
 {
     if (m_pWasapiFilter)
     {
         m_pWasapiFilter->Release();
         m_pWasapiFilter = NULL;
     }
+	if(m_pDeviceInfos)
+	{
+		delete[] m_pDeviceInfos;
+		m_pDeviceInfos=NULL;
+	}
     return S_OK;
 }
 
-HRESULT CGrayProp::OnActivate(void)
+HRESULT CWasapiFilterProperties::OnActivate(void)
 {
 	INITCOMMONCONTROLSEX icc;
     icc.dwSize = sizeof(INITCOMMONCONTROLSEX);
@@ -57,12 +66,12 @@ HRESULT CGrayProp::OnActivate(void)
 	hr = m_pWasapiFilter->GetExclusiveMode(&isExlusive);
 	SendDlgItemMessage(m_Dlg, IDC_CHK_EXCLUSIVE, BM_SETCHECK, isExlusive, 0);
 
+	PopulateDeviceList();
 	UpdateFormatText();
-
 	return hr;
 }
 
-BOOL CGrayProp::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+BOOL CWasapiFilterProperties::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	switch ( uMsg )
 	{
@@ -87,21 +96,72 @@ BOOL CGrayProp::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 				}
 
 			}
+			else if(HIWORD( wParam ) == CBN_SELCHANGE)
+			{
+				if ( LOWORD( wParam ) == IDC_COMBO1) 
+				{
+					int selectedIndex=	SendDlgItemMessage(m_Dlg,IDC_COMBO1, CB_GETCURSEL  ,(WPARAM) 0,(LPARAM) 0); 
+					m_pWasapiFilter->SetDevice(m_pDeviceInfos[selectedIndex].DeviceId);
+					return (LRESULT) 1;
+				}
+
+			}
 			break;
 
 	}
 	return CBasePropertyPage::OnReceiveMessage(hwnd,uMsg,wParam,lParam);
 }
 
-void CGrayProp::UpdateFormatText()
+void CWasapiFilterProperties::PopulateDeviceList()
+{
+	HRESULT hr=S_OK;
+	int iFormats=0;
+	int iSelected=-1;
+	int iDefault=-1;
+
+	if(m_pDeviceInfos)
+	{
+		delete m_pDeviceInfos;
+		m_pDeviceInfos=NULL;
+	}
+
+
+	hr = m_pWasapiFilter->GetDeviceInfos(false,&m_pDeviceInfos,&iFormats, &iDefault);
+	SendDlgItemMessage(m_Dlg,IDC_COMBO1, CB_RESETCONTENT ,(WPARAM) 0,(LPARAM) 0); 
+	for (int k = 0; k < iFormats; k += 1)
+    {
+        auto newString=NewStringW(m_pDeviceInfos[k].DeviceFriendlyName);
+        // Add string to combobox.
+		SendDlgItemMessage(m_Dlg,IDC_COMBO1, CB_ADDSTRING,(WPARAM) 0,(LPARAM) newString); 
+    }
+	LPWSTR selectedDevice=NULL;
+	hr=m_pWasapiFilter->GetDevice(&selectedDevice);
+	if(hr==S_OK) 
+	{
+		for (int k = 0; k < iFormats; k += 1)
+		{
+			if(wcscmp(m_pDeviceInfos[k].DeviceId,selectedDevice)==0)
+			{
+				iSelected=k;
+			}
+		}
+	}
+
+	if(iSelected>-1)
+		SendDlgItemMessage(m_Dlg,IDC_COMBO1, CB_SETCURSEL  ,(WPARAM) iSelected,(LPARAM) 0); 
+	else
+		SendDlgItemMessage(m_Dlg,IDC_COMBO1, CB_SETCURSEL  ,(WPARAM) iDefault,(LPARAM) 0); 
+}
+
+void CWasapiFilterProperties::UpdateFormatText()
 {
 	HRESULT hr=S_OK;
 	RefCountingWaveFormatEx* pFormat=NULL;
 
 	hr = m_pWasapiFilter->GetCurrentInputFormat(&pFormat);
+	WCHAR buffer[100];
 	if(pFormat)
 	{
-		WCHAR buffer[100];
 		WAVEFORMATEX* pFormatEx=pFormat->GetFormat();
 		_snwprintf_s(buffer, _TRUNCATE, L"%d / 0x%x", pFormatEx->nChannels, 0);
 		SendDlgItemMessage(m_Dlg, IDC_STATIC_INPUT_CHANNELS, WM_SETTEXT, 0, (LPARAM)buffer);
@@ -112,11 +172,21 @@ void CGrayProp::UpdateFormatText()
 		SendDlgItemMessage(m_Dlg, IDC_STATIC_INPUT_FORMAT, WM_SETTEXT, 0, (LPARAM)buffer);
 		pFormat->Release();
 	}
+	else
+	{
+		_snwprintf_s(buffer, _TRUNCATE, L"n/a");
+		SendDlgItemMessage(m_Dlg, IDC_STATIC_INPUT_CHANNELS, WM_SETTEXT, 0, (LPARAM)buffer);
+		_snwprintf_s(buffer, _TRUNCATE,  L"n/a");
+		SendDlgItemMessage(m_Dlg, IDC_STATIC_INPUT_SAMPLERATE, WM_SETTEXT, 0, (LPARAM)buffer);
+		_snwprintf_s(buffer, _TRUNCATE,  L"n/a");
+		SendDlgItemMessage(m_Dlg, IDC_STATIC_INPUT_FORMAT, WM_SETTEXT, 0, (LPARAM)buffer);
+	}
+
+
 
 	hr = m_pWasapiFilter->GetCurrentResampledFormat(&pFormat);
 	if(pFormat)
 	{
-		WCHAR buffer[100];
 		WAVEFORMATEX* pFormatEx=pFormat->GetFormat();
 		_snwprintf_s(buffer, _TRUNCATE, L"%d / 0x%x", pFormatEx->nChannels, 0);
 		SendDlgItemMessage(m_Dlg, IDC_STATIC_RESAMPLER_CHANNELS, WM_SETTEXT, 0, (LPARAM)buffer);
@@ -127,6 +197,15 @@ void CGrayProp::UpdateFormatText()
 		SendDlgItemMessage(m_Dlg, IDC_STATIC_RESAMPLER_FORMAT, WM_SETTEXT, 0, (LPARAM)buffer);
 		pFormat->Release();
 	}
+	else
+	{
+		_snwprintf_s(buffer, _TRUNCATE, L"n/a");
+		SendDlgItemMessage(m_Dlg, IDC_STATIC_RESAMPLER_CHANNELS, WM_SETTEXT, 0, (LPARAM)buffer);
+		_snwprintf_s(buffer, _TRUNCATE, L"n/a");
+		SendDlgItemMessage(m_Dlg, IDC_STATIC_RESAMPLER_SAMPLERATE, WM_SETTEXT, 0, (LPARAM)buffer);
+
+		_snwprintf_s(buffer, _TRUNCATE, L"n/a");
+		SendDlgItemMessage(m_Dlg, IDC_STATIC_RESAMPLER_FORMAT, WM_SETTEXT, 0, (LPARAM)buffer);	}
 
 
 }

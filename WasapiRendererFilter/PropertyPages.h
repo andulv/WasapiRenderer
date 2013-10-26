@@ -1,13 +1,13 @@
-class CGrayProp : public CBasePropertyPage
+class CWasapiFilterProperties : public CBasePropertyPage
 {
 private:
     IRendererFilterWasapi *m_pWasapiFilter;    // Pointer to the filter's custom interface.
-
+	WasapiDeviceInfo *m_pDeviceInfos;
 	void UpdateFormatText();
+	void PopulateDeviceList();
 
 public:
-    // Constructor
-    CGrayProp(IUnknown *pUnk);
+    CWasapiFilterProperties(IUnknown *pUnk);
 	virtual HRESULT 		OnConnect(IUnknown *pUnk);
 	virtual HRESULT 		OnDisconnect();
 	virtual HRESULT 		OnActivate();
@@ -16,7 +16,7 @@ public:
 
 	static CUnknown * WINAPI CreateInstance(LPUNKNOWN pUnk, HRESULT *pHr) 
 	{
-		CGrayProp *pNewObject = new CGrayProp(pUnk);
+		CWasapiFilterProperties *pNewObject = new CWasapiFilterProperties(pUnk);
 		if (pNewObject == NULL) 
 		{
 			*pHr = E_OUTOFMEMORY;

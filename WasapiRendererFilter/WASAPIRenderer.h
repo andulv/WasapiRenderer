@@ -131,6 +131,8 @@ public:
 	REFERENCE_TIME		GetCurrentSampleTime();
 	int					InitializedMode;
 
+	HRESULT GetDeviceId(LPWSTR *ppstrId);
+
 private:
     //
     //  Core Audio Rendering member variables.

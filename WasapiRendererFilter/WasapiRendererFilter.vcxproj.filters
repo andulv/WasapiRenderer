@@ -42,6 +42,12 @@
     <ClCompile Include="PropertyPages.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="CWasapiUtils.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="utility.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="WasapiRendererFilter.def">
@@ -86,6 +92,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="PropertyPages.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="CWasapiUtils.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="utility.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
