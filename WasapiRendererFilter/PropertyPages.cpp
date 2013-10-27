@@ -121,7 +121,7 @@ void CWasapiFilterProperties::PopulateDeviceList()
 
 	if(m_pDeviceInfos)
 	{
-		delete m_pDeviceInfos;
+		delete[] m_pDeviceInfos;
 		m_pDeviceInfos=NULL;
 	}
 

@@ -1,7 +1,7 @@
 #pragma once
 
 class RefCountingWaveFormatEx;
-struct WasapiDeviceInfo;
+class WasapiDeviceInfo;
 
 // {202F2BEE-B160-40ac-8BC1-30B6456DED61}
 DEFINE_GUID(CLSID_WasapiRendererFilter, 0x202f2bee, 0xb160, 0x40ac, 0x8b, 0xc1, 0x30, 0xb6, 0x45, 0x6d, 0xed, 0x61);

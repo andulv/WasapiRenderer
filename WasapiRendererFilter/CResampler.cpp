@@ -7,6 +7,7 @@
 #include <wmcodecdsp.h>
 #include <dmo.h>
 #include "FormatUtils.h"
+//#include "Mmreg.h"
 
 
 CResampler::CResampler()
@@ -27,17 +28,31 @@ CResampler::~CResampler()
 
 
 bool CResampler::CanResample(WAVEFORMATEX* pSourceFormat, WAVEFORMATEX* pDestFormat)
-{
-	return 1;
+{		
+	WORD formatTag=pSourceFormat->wFormatTag;
+	if(pSourceFormat->wFormatTag==WAVE_FORMAT_EXTENSIBLE)
+	{
+		WAVEFORMATEXTENSIBLE *extensible=(WAVEFORMATEXTENSIBLE*)pSourceFormat;
+		formatTag = CFormatUtils::SubFormatToFormatTag(extensible->SubFormat);
+	}
+
+	if( formatTag==WAVE_FORMAT_PCM || 
+		formatTag==WAVE_FORMAT_ADPCM || 
+		formatTag==WAVE_FORMAT_IEEE_FLOAT)
+	{
+		return true;
+	}
+	else
+	{
+		return false;
+	}
 }
 
 bool SampleFormatEquals(WAVEFORMATEX* pformat1, WAVEFORMATEX* pformat2)
 {
-	if(pformat1==NULL && pformat2==NULL)
+	if(pformat1 == pformat2)				//Both are NULL or both are pointer to same instance
 		return true;
-	if(pformat1==NULL && pformat2!=NULL)
-		return false;
-	if(pformat1!=NULL && pformat2==NULL)
+	if(pformat1==NULL || pformat2==NULL)	//One of them is null
 		return false;
 
 	return	

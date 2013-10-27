@@ -99,12 +99,14 @@ bool CWasapiFilterManager::ClearQueue()
 	return true;
 }
 
-bool CWasapiFilterManager::StopRendering(bool clearQueue)
+bool CWasapiFilterManager::StopRendering(bool clearQueue, bool clearFormats)
 {
 	m_pRenderer->SetIsProcessing(false);
 	m_pRenderer->Stop();
 	if(clearQueue)
 		m_pRenderer->ClearQueue();
+	if(clearFormats)
+		SetFormatReceived(NULL);
 	return true;
 }
 
@@ -174,7 +176,7 @@ HRESULT CWasapiFilterManager::SetExclusiveMode(bool pIsExclusive)
 	if(m_IsExclusive!=pIsExclusive)
 	{
 		m_IsExclusive=pIsExclusive;	
-		return ConfigureFormat();
+		return SetFormatProcessed();
 	}
 	return hr;
 }
@@ -191,23 +193,24 @@ HRESULT CWasapiFilterManager::GetActiveMode(int* pMode)
 //- When mediatype has changed
 //Sets m_pCurrentMediaTypeResample and initializes resampler based on m_pCurrentMediaTypeReceive, exclusive/shared mode and wasapi engines suggestion.
 //m_pCurrentMediaTypeResample is set to NULL if resample is not required (or resampling not possible)
-HRESULT CWasapiFilterManager::ConfigureFormat()
+HRESULT CWasapiFilterManager::SetFormatProcessed()
 {
 	CAutoLock lock(&m_MediaTypeLock);
-
-	if(!m_pCurrentMediaTypeReceive)
-		return E_FAIL;
-
-	WAVEFORMATEX* pSrcFormat=m_pCurrentMediaTypeReceive->GetFormat();
-
-	if(!pSrcFormat)
-		return E_FAIL;
 
 	if(m_pCurrentMediaTypeResample)
 	{
 		m_pCurrentMediaTypeResample->Release();
 		m_pCurrentMediaTypeResample=NULL;
 	}
+
+	if(!m_pCurrentMediaTypeReceive)
+		return S_FALSE;
+
+	WAVEFORMATEX* pSrcFormat=m_pCurrentMediaTypeReceive->GetFormat();
+
+	if(!pSrcFormat)
+		return S_FALSE;
+
 
 	WAVEFORMATEX* pSuggestedFormat=NULL;
 
@@ -247,7 +250,7 @@ HRESULT CWasapiFilterManager::ConfigureFormat()
 
 //Invoked from InputsPin->SetMediaType (Graph control thread) and from SampleReceived (parser/decoder thread)
 //Sets m_pCurrentMediaTypeReceive based on the CMediaType parameter
-HRESULT CWasapiFilterManager::SetCurrentMediaType(CMediaType* pmt)
+HRESULT CWasapiFilterManager::SetFormatReceived(CMediaType* pmt)
 {
 	ReceivedSampleActions newAction=ReceivedSampleActions_RejectLoud;
 	HRESULT hr=S_OK;
@@ -259,12 +262,17 @@ HRESULT CWasapiFilterManager::SetCurrentMediaType(CMediaType* pmt)
 		m_pCurrentMediaTypeReceive=NULL;
 	}
 
+	if(pmt==NULL) {
+		SetFormatProcessed();		//Will clear processed format when source format is NULL;
+		return hr;
+	}
+
 	if(pmt->formattype==FORMAT_WaveFormatEx)
 	{
 		WAVEFORMATEX* formatNew=(WAVEFORMATEX*)pmt->pbFormat;
 		m_pCurrentMediaTypeReceive = RefCountingWaveFormatEx::CopyAndCreate(formatNew);
 
-		if(ConfigureFormat()==S_OK)
+		if(SetFormatProcessed()==S_OK)
 		{
 			newAction=ReceivedSampleActions_Accept;
 		}
@@ -294,7 +302,7 @@ HRESULT CWasapiFilterManager::SampleReceived(IMediaSample *pSample)
 	if(hr==S_OK)
 	{	
 		DebugPrintf(L"SampleReceived - Mediatype has changed.\n");
-		SetCurrentMediaType(mediaType);	//Makes a ref counting copy
+		SetFormatReceived(mediaType);	//Makes a ref counting copy
 	}
 	hr=S_OK;
 	//CurrentMediaType is either a accepted waveformat or FORMAT_None. 

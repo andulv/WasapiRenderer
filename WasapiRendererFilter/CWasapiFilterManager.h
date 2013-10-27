@@ -68,7 +68,7 @@ public:
     HRESULT SampleReceived(IMediaSample *pSample);
 	bool StartRendering();
 	bool PauseRendering();
-	bool StopRendering(bool clearQueue);
+	bool StopRendering(bool clearQueue, bool clearFormats);
 	bool ClearQueue();
 	bool CheckFormat(WAVEFORMATEX* requestedFormat);
 	STDMETHOD(GetWasapiMixFormat)(WAVEFORMATEX** ppFormat);
@@ -83,8 +83,8 @@ public:
 	STDMETHOD(GetDeviceInfos)(bool includeDisconnected, WasapiDeviceInfo** ppDestInfos, int* pInfoCount, int* pIndexDefault);
 
 private:
-	HRESULT ConfigureFormat();
-	HRESULT SetCurrentMediaType(CMediaType* pmt);
+	HRESULT SetFormatReceived(CMediaType* pmt);
+	HRESULT SetFormatProcessed();
 	REFERENCE_TIME GetPrivateTime();
     // Overriden to say what interfaces we support where
     STDMETHODIMP NonDelegatingQueryInterface(REFIID riid, void ** ppv);

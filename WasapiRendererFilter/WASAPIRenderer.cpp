@@ -25,7 +25,6 @@ CWASAPIRenderer::CWASAPIRenderer(LPCWSTR pDevID) :
 {
 	IMMDeviceEnumerator *deviceEnumerator = NULL;
 	IPropertyStore *pDeviceProperties=NULL;
-	UINT deviceCount;
 
 	HRESULT hr=S_OK;
 

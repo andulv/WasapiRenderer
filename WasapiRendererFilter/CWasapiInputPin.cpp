@@ -63,7 +63,7 @@ HRESULT CWasapiInputPin::SetMediaType(const CMediaType *pmt)
 {
 	HRESULT hr = CBasePin::SetMediaType(pmt);
 	DebugPrintf(L"CWasapiInputPin::SetMediaType\n");
-	m_pManager->SetCurrentMediaType((CMediaType*)pmt);
+	m_pManager->SetFormatReceived((CMediaType*)pmt);
     return hr;
 }
 
@@ -86,7 +86,7 @@ HRESULT CWasapiInputPin::BreakConnect()
     //}
 
 	DebugPrintf(L"CWasapiInputPin::BreakConnect \n");
-	m_pManager->StopRendering(true);
+	m_pManager->StopRendering(true,true);
 
     return CRenderedInputPin::BreakConnect();
 }

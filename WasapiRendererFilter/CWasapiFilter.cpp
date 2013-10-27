@@ -103,7 +103,7 @@ STDMETHODIMP CWasapiFilter::Stop()
 	bStarted=false;
  	DebugPrintf(L"CWasapiFilter::Stop \n");
     CAutoLock cObjectLock(m_pLock);
-	m_pManager->StopRendering(true);  
+	m_pManager->StopRendering(true,false);  
 	HRESULT hr=CBaseFilter::Stop();
     return hr;
 }
